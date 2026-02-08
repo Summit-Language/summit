@@ -1,0 +1,10 @@
+.idea/
+build/
+target/
+test/
+lib/
+
+*.o
+*.so
+*.dll
+*.a

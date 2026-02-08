@@ -1,0 +1,32 @@
+[package]
+name = "summit"
+version = "0.0.1"
+edition = "2024"
+
+[[bin]]
+name = "summit"
+path = "src/main.rs"
+
+[profile.dev]
+opt-level = 1
+debug = true
+split-debuginfo = "unpacked"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+incremental = false
+overflow-checks = false
+
+[profile.max-speed]
+inherits = "release"
+opt-level = 3
+
+[profile.max-size]
+inherits = "release"
+opt-level = "s"
+strip = true

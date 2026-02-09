@@ -20,7 +20,7 @@ impl<'a> StdlibCollector<'a> {
     /// # Parameters
     /// - `used_functions`: Set to store identified function names
     /// - `symbol_table`: Map containing variable type information
-    pub fn new(used_functions: &'a mut HashSet<String>, 
+    pub fn new(used_functions: &'a mut HashSet<String>,
                symbol_table: &'a mut HashMap<String, String>) -> Self {
         StdlibCollector {
             used_functions,
@@ -62,7 +62,7 @@ impl<'a> StdlibCollector<'a> {
     /// - `stmt`: The statement to analyze
     pub fn collect_from_stmt(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::For { start, end, step, 
+            Statement::For { start, end, step,
                 filter, body, .. } => {
                 self.collect_from_expr(start);
                 self.collect_from_expr(end);
@@ -97,7 +97,7 @@ impl<'a> StdlibCollector<'a> {
             Statement::Expression(expr) => {
                 self.collect_from_expr(expr);
             }
-            Statement::If { condition, then_block, 
+            Statement::If { condition, then_block,
                 else_block } => {
                 self.collect_from_expr(condition);
                 for s in then_block {
@@ -115,6 +115,8 @@ impl<'a> StdlibCollector<'a> {
                     self.collect_from_stmt(s);
                 }
             }
+            Statement::Next => {}
+            Statement::Stop => {}
         }
     }
 
@@ -125,7 +127,7 @@ impl<'a> StdlibCollector<'a> {
     /// - `expr`: The expression to analyze
     pub fn collect_from_expr(&mut self, expr: &Expression) {
         match expr {
-            Expression::Call { path, type_args, 
+            Expression::Call { path, type_args,
                 args } => {
                 self.process_call(path, type_args, args);
 
@@ -140,7 +142,7 @@ impl<'a> StdlibCollector<'a> {
             Expression::Unary { operand, .. } => {
                 self.collect_from_expr(operand);
             }
-            Expression::IfExpr { condition, then_expr, 
+            Expression::IfExpr { condition, then_expr,
                 else_expr } => {
                 self.collect_from_expr(condition);
                 self.collect_from_expr(then_expr);
@@ -157,7 +159,7 @@ impl<'a> StdlibCollector<'a> {
     /// - `path`: The function path (e.g., ["io", "println"])
     /// - `type_args`: Generic type arguments if present
     /// - `args`: The function arguments
-    fn process_call(&mut self, path: &[String], type_args: &Option<Vec<String>>, 
+    fn process_call(&mut self, path: &[String], type_args: &Option<Vec<String>>,
                     args: &[Expression]) {
         let is_stdlib = (path.len() == 2 && path[0] == "io") ||
             (path.len() == 3 && path[0] == "std" && path[1] == "io");

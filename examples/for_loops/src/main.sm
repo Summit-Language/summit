@@ -25,5 +25,23 @@ func main(): i8 {
     for var i in 0 through 10 where i % 2 == 0 {
         io::println(i);
     }
+    io::println("");
+
+    // Next statement
+    for var i in 0 through 10 {
+        if i % 2 == 0 {
+            next;
+        }
+        io::println(i);
+    }
+    io::println("");
+
+    // Stop statement
+    for var i in 0 to 10 {
+        if i == 5 {
+            stop;
+        }
+        io::println(i);
+    }
     ret 0;
 }

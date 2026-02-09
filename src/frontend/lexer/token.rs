@@ -16,6 +16,8 @@ pub enum Token {
     Else,
     While,
     For,
+    Next,
+    Stop,
     In,
     To,
     Through,

@@ -174,6 +174,12 @@ impl<'a> StatementAnalyzer<'a> {
                 }
                 Ok(())
             }
+            Statement::Next => {
+                Ok(())
+            }
+            Statement::Stop => {
+                Ok(())
+            }
             _ => {
                 self.analyze_stmt(stmt, scope)
             }
@@ -391,6 +397,12 @@ impl<'a> StatementAnalyzer<'a> {
                 for stmt in body {
                     self.analyze_stmt(stmt, &mut body_scope)?;
                 }
+                Ok(())
+            }
+            Statement::Next => {
+                Ok(())
+            }
+            Statement::Stop => {
                 Ok(())
             }
         }

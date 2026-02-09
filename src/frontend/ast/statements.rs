@@ -69,4 +69,10 @@ pub enum Statement {
         filter: Option<Expression>,
         body: Vec<Statement>
     },
+
+    /// A next statement (continue): `next;`
+    Next,
+
+    /// A stop statement (break): `stop;`
+    Stop,
 }

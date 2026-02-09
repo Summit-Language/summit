@@ -33,6 +33,8 @@ impl<'a> StatementParser<'a> {
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
             Token::For => self.parse_for(),
+            Token::Next => self.parse_next(),
+            Token::Stop => self.parse_stop(),
             Token::Identifier(_) => {
                 if self.parser.peek(1) == &Token::Assign {
                     self.parse_assign()
@@ -52,8 +54,38 @@ impl<'a> StatementParser<'a> {
         }
     }
 
+    /// Parses a next statement (continue).
+    ///
+    /// Format: `next;`
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `Statement::Next` or an error message.
+    fn parse_next(&mut self) -> Result<Statement, String> {
+        self.parser.expect(Token::Next)?;
+        self.parser.expect(Token::Semicolon)?;
+        Ok(Statement::Next)
+    }
+
+    /// Parses a stop statement (break).
+    ///
+    /// Format: `stop;`
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `Statement::Stop` or an error message.
+    fn parse_stop(&mut self) -> Result<Statement, String> {
+        self.parser.expect(Token::Stop)?;
+        self.parser.expect(Token::Semicolon)?;
+        Ok(Statement::Stop)
+    }
+
     /// Parses a for loop statement.
-    /// 
+    ///
     /// Formats:
     /// - `for var {x} in {start_range} to {end_range} { ... }`
     /// - `for var {x} in {start_range} through {end_range} { ... }`
@@ -136,7 +168,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses a const statement.
-    /// 
+    ///
     /// Format: `const {name}: {type} = {value};`
     ///
     /// # Parameters
@@ -177,7 +209,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses a comptime statement.
-    /// 
+    ///
     /// Format: `comptime {name}: {type} = {value};`
     ///
     /// # Parameters
@@ -218,7 +250,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses a let variable declaration statement.
-    /// 
+    ///
     /// Format: `let {name}: {type} = {value};`
     ///
     /// # Parameters
@@ -259,7 +291,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses an assignment statement.
-    /// 
+    ///
     /// Format: `{variable_name} = {value};`
     ///
     /// # Parameters
@@ -285,7 +317,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses a return statement.
-    /// 
+    ///
     /// Format: `ret {expr};`
     ///
     /// # Parameters
@@ -302,7 +334,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses an if statement.
-    /// 
+    ///
     /// Format: `if condition { ... } elseif condition { ... } else { ... }`
     ///
     /// # Parameters
@@ -339,7 +371,7 @@ impl<'a> StatementParser<'a> {
     }
 
     /// Parses a while statement.
-    /// 
+    ///
     /// Format: `while {condition} { ... }`
     ///
     /// # Parameters

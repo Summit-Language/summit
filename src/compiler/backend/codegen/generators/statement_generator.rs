@@ -55,7 +55,29 @@ impl<'a> StatementGenerator<'a> {
             Statement::While { condition, body } => {
                 self.emit_while_stmt(condition, body);
             }
+            Statement::Next => {
+                self.emit_next_stmt();
+            }
+            Statement::Stop => {
+                self.emit_stop_stmt();
+            }
         }
+    }
+
+    /// Generates C code for a next statement (continue).
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    fn emit_next_stmt(&mut self) {
+        self.generator.emitter.emit_line("continue;");
+    }
+
+    /// Generates C code for a stop statement (break).
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    fn emit_stop_stmt(&mut self) {
+        self.generator.emitter.emit_line("break;");
     }
 
     /// Emits the step expression for a for loop, or "1" if no step is provided.
@@ -146,7 +168,7 @@ impl<'a> StatementGenerator<'a> {
         self.generator.emitter.emit(&format!("; {}++) {{\n", variable));
 
         self.generator.emitter.indent_level += 1;
-        
+
         for stmt in body {
             self.generate_stmt(stmt);
         }

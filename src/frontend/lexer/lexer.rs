@@ -152,6 +152,8 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "if" => Token::If,
         "else" => Token::Else,
         "while" => Token::While,
+        "next" => Token::Next,
+        "stop" => Token::Stop,
         "for" => Token::For,
         "in" => Token::In,
         "to" => Token::To,

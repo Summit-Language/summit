@@ -104,6 +104,10 @@ impl ProgramGenerator {
 
         for global in globals {
             match global {
+                GlobalDeclaration::Var { name, .. } => {
+                    // Var globals are always runtime
+                    runtime_global_names.insert(name.clone());
+                }
                 GlobalDeclaration::Const { name, value, .. } => {
                     if !self.compile_time_checker
                         .is_compile_time_constant_expr(value, &runtime_global_names) {
@@ -136,8 +140,17 @@ impl ProgramGenerator {
 
         for global in globals {
             match global {
-                GlobalDeclaration::Comptime { name, var_type,
-                    value } => {
+                GlobalDeclaration::Var { name, var_type, value } => {
+                    let inferred_type = if let Some(t) = var_type {
+                        t.clone()
+                    } else {
+                        self.infer_expr_type(value)
+                    };
+                    self.symbol_table.insert(name.clone(), inferred_type);
+                    // Var globals are always runtime
+                    runtime_globals.push(global);
+                }
+                GlobalDeclaration::Comptime { name, var_type, value } => {
                     let inferred_type = if let Some(t) = var_type {
                         t.clone()
                     } else {
@@ -146,8 +159,7 @@ impl ProgramGenerator {
                     self.symbol_table.insert(name.clone(), inferred_type);
                     comptime_globals.push(global);
                 }
-                GlobalDeclaration::Const { name, var_type,
-                    value } => {
+                GlobalDeclaration::Const { name, var_type, value } => {
                     let inferred_type = if let Some(t) = var_type {
                         t.clone()
                     } else {
@@ -185,6 +197,7 @@ impl ProgramGenerator {
 
         for global in &program.globals {
             match global {
+                GlobalDeclaration::Var { value, .. } |
                 GlobalDeclaration::Const { value, .. } |
                 GlobalDeclaration::Comptime { value, .. } => {
                     collector.collect_from_expr(value);
@@ -227,25 +240,55 @@ impl ProgramGenerator {
         if !program.statements.is_empty() && !has_main {
             self.emit_synthetic_start(program, runtime_globals);
         } else {
+            // Initialize runtime globals at the start of main (or before main is called)
+            if has_main && !runtime_globals.is_empty() {
+                self.emit_global_init_function(runtime_globals);
+            }
+
             for func in &program.functions {
                 let mut func_gen = FunctionGenerator::new(self);
                 func_gen.generate_func(func);
                 self.emitter.emit_line("");
             }
-            
+
             if has_main {
-                self.emit_start_wrapper();
+                self.emit_start_wrapper(!runtime_globals.is_empty());
             }
         }
+    }
+
+    /// Emits a function to initialize runtime globals.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `runtime_globals`: Globals requiring runtime initialization
+    fn emit_global_init_function(&mut self, runtime_globals: &[&GlobalDeclaration]) {
+        self.emitter.emit_line("static void __init_globals(void) {");
+        self.emitter.indent_level += 1;
+
+        let mut global_gen = GlobalGenerator::new(self);
+        for global in runtime_globals {
+            global_gen.emit_global_init(global);
+        }
+
+        self.emitter.indent_level -= 1;
+        self.emitter.emit_line("}");
+        self.emitter.emit_line("");
     }
 
     /// Emits a _start function that calls main and exits.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
-    fn emit_start_wrapper(&mut self) {
+    /// - `has_global_init`: Whether there are runtime globals to initialize
+    fn emit_start_wrapper(&mut self, has_global_init: bool) {
         self.emitter.emit_line("void _start(void) {");
         self.emitter.indent_level += 1;
+
+        if has_global_init {
+            self.emitter.emit_line("__init_globals();");
+        }
+
         self.emitter.emit_line("int8_t exit_code = main();");
         self.emitter.emit_line("syscall1(SYS_exit, exit_code);");
         self.emitter.indent_level -= 1;

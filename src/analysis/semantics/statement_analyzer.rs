@@ -240,7 +240,7 @@ impl<'a> StatementAnalyzer<'a> {
 
                 Ok(())
             }
-            Statement::Let { name, var_type, value } => {
+            Statement::Var { name, var_type, value } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(value, scope)?;
                 let inferred_type = self.analyzer.type_checker.infer_type(value, scope,

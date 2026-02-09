@@ -1,0 +1,46 @@
+import std::io;
+
+func main(): i8 {
+    // Signed integers
+    const i8_max: i8 = 127;
+    const i8_min: i8 = -128;
+
+    const i16_max: i16 = 32767;
+    const i16_min: i16 = -32768;
+
+    const i32_max: i32 = 2147483647;
+    const i32_min: i32 = -2147483648;
+
+    const i64_max: i64 = 9223372036854775807;
+    const i64_min: i64 = -9223372036854775808;
+
+    const i128_max: i128 = 170141183460469231731687303715884105727;
+    const i128_min: i128 = -170141183460469231731687303715884105728;
+
+    // Unsigned integers
+    const u8_max: u8 = 255;
+    const u16_max: u16 = 65535;
+    const u32_max: u32 = 4294967295;
+    const u64_max: u64 = 18446744073709551615;
+    const u128_max: u128 = 340282366920938463463374607431768211455;
+
+    io::println("Signed Integer Minimum & Maximum Values");
+    io::println("i8 max: {}", i8_max);
+    io::println("i8 min: {}", i8_min);
+    io::println("i16 max: {}", i16_max);
+    io::println("i16 min: {}", i16_min);
+    io::println("i32 max: {}", i32_max);
+    io::println("i32 min: {}", i32_min);
+    io::println("i64 max: {}", i64_max);
+    io::println("i64 min: {}", i64_min);
+    io::println("i128 max: {}", i128_max);
+    io::println("i128 min: {}", i128_min);
+
+    io::println("\nUnsigned Integer Maximum Values");
+    io::println("u8 max: {}", u8_max);
+    io::println("u16 max: {}", u16_max);
+    io::println("u32 max: {}", u32_max);
+    io::println("u64 max: {}", u64_max);
+    io::println("u128 max: {}", u128_max);
+    ret 0;
+}

@@ -1,0 +1,15 @@
+import std::io;
+
+func main(): i8 {
+    // Reading string input
+    io::print("What is your name? ");
+    const name: str = io::readln();
+    io::println("Your name is {}", name);
+
+    // Reading with integer specific input
+    // which is bounded by the integer type put in e.g. u8 (0-255)
+    io::print("What is your age? ");
+    const age: u8 = io::read<u8>();
+    io::println("You are {} years old!", age);
+    ret 0;
+}

@@ -76,7 +76,7 @@ impl<'a> StdlibCollector<'a> {
                     self.collect_from_stmt(s);
                 }
             }
-            Statement::Let { name, var_type, value } => {
+            Statement::Var { name, var_type, value } => {
                 self.register_variable(name, var_type, value);
                 self.collect_from_expr(value);
             }

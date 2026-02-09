@@ -12,6 +12,8 @@ typedef signed long long int64_t;
 typedef unsigned __int128 uint128_t;
 typedef __int128 int128_t;
 
+typedef int bool;
+
 typedef unsigned long size_t;
 typedef long ssize_t;
 

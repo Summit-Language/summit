@@ -1,0 +1,21 @@
+import std::io;
+
+func main(): i8 {
+    // Mutable variable declaration and assignment
+    var a: i8 = 2;
+    a = a + 1; // Mutable variables can be reassigned
+
+    // Constant declaration, the value cannot be changed after initialization
+    // Summit enforces using 'const' when variables are never reassigned,
+    // allowing safer and more predictable code
+    const b: i8 = 5;
+
+    // Attempting to modify a constant would cause a compiler error:
+    // b = 10; // ERROR: Cannot assign to constant 'b'
+
+    io::println(a);
+    io::println(b);
+
+    io::println(BIG);
+    ret 0;
+}

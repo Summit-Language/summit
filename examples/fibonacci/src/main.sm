@@ -1,0 +1,15 @@
+import std::io;
+
+func fibonacci(n: i32): i32 {
+    if n <= 1 {
+        ret n;
+    }
+    ret fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+func main(): i8 {
+    for var i in 0 through 10 {
+        io::println(fibonacci(i));
+    }
+    ret 0;
+}

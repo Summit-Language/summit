@@ -1,0 +1,10 @@
+import std::io;
+
+func main(): i8 {
+    var i: i8 = 0;
+    while i < 5 {
+        io::println(i);
+        i = i + 1;
+    }
+    ret 0;
+}

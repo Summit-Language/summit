@@ -26,7 +26,7 @@ impl<'a> StatementParser<'a> {
     /// A `Statement` or an error message.
     pub fn parse_stmt(&mut self) -> Result<Statement, String> {
         match self.parser.current() {
-            Token::Var => self.parse_let(),
+            Token::Var => self.parse_var(),
             Token::Const => self.parse_const(),
             Token::Comptime => self.parse_comptime(),
             Token::Ret => self.parse_return(),
@@ -226,7 +226,7 @@ impl<'a> StatementParser<'a> {
     ///
     /// # Returns
     /// A `Statement::Let` or an error message.
-    fn parse_let(&mut self) -> Result<Statement, String> {
+    fn parse_var(&mut self) -> Result<Statement, String> {
         self.parser.expect(Token::Var)?;
 
         let name = if let Token::Identifier(n) = self.parser.current() {
@@ -255,7 +255,7 @@ impl<'a> StatementParser<'a> {
         let value = expr_parser.parse_expr()?;
         self.parser.expect(Token::Semicolon)?;
 
-        Ok(Statement::Let { name, var_type, value })
+        Ok(Statement::Var { name, var_type, value })
     }
 
     /// Parses an assignment statement.

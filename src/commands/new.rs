@@ -1,6 +1,9 @@
+// File: src/commands/new_project.rs
+
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use crate::config::SummitConfig;
 
 const MAIN_SM_TEMPLATE: &str = r#"import std::io;
 
@@ -49,6 +52,10 @@ fn create_project_in_folder(name: &str) -> Result<(), String> {
     fs::write(&main_path, MAIN_SM_TEMPLATE)
         .map_err(|e| format!("Failed to create main.sm: {}", e))?;
 
+    let config = SummitConfig::default_config(name);
+    let toml_path = project_path.join("Summit.toml");
+    config.save(&toml_path)?;
+
     println!("Created new Summit project: {}", name);
     println!();
     println!("To get started:");
@@ -65,9 +72,10 @@ fn create_project_in_folder(name: &str) -> Result<(), String> {
 fn create_project_in_current_dir() -> Result<(), String> {
     let src_path = Path::new("src");
     let main_path = src_path.join("main.sm");
+    let toml_path = Path::new("Summit.toml");
 
-    if main_path.exists() {
-        return Err("A Summit project already exists in this directory (src/main.sm found)".to_string());
+    if main_path.exists() || toml_path.exists() {
+        return Err("A Summit project already exists in this directory (src/main.sm or Summit.toml found)".to_string());
     }
 
     print!("Create a new Summit project in the current directory? [y/N]: ");
@@ -90,6 +98,14 @@ fn create_project_in_current_dir() -> Result<(), String> {
 
     fs::write(&main_path, MAIN_SM_TEMPLATE)
         .map_err(|e| format!("Failed to create main.sm: {}", e))?;
+    
+    let current_dir_name = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "summit_project".to_string());
+
+    let config = SummitConfig::default_config(&current_dir_name);
+    config.save(toml_path)?;
 
     println!("Created new Summit project in current directory");
     println!();

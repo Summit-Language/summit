@@ -1,0 +1,18 @@
+import std::io;
+
+func greet(name: str): void {
+    io::println("Hello, {}", name);
+}
+
+func add(a: i8, b: i8): i8 {
+    ret a + b;
+}
+
+func main(): i8 {
+    io::print("Enter your name: ");
+    const name: str = io::readln();
+    greet(name);
+
+    io::println(add(7, 11));
+    ret 0;
+}

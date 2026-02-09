@@ -47,9 +47,9 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decl(&mut self, global: &GlobalDeclaration) {
         match global {
+            GlobalDeclaration::Var { name, var_type, value } |
             GlobalDeclaration::Const { name, var_type, value } |
-            GlobalDeclaration::Comptime { name, var_type,
-                value } => {
+            GlobalDeclaration::Comptime { name, var_type, value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
                 let c_type = self.generator.map_type(&summit_type).to_string();
@@ -83,8 +83,18 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decls_only(&mut self, global: &GlobalDeclaration) {
         match global {
-            GlobalDeclaration::Const { name, var_type,
-                value } => {
+            GlobalDeclaration::Var { name, var_type, value } => {
+                let summit_type = TypeResolver::resolve_type(
+                    var_type, value, |v| self.generator.infer_expr_type(v));
+                let c_type = self.generator.map_type(&summit_type).to_string();
+
+                self.generator.emitter.emit("static ");
+                self.generator.emitter.emit(&c_type);
+                self.generator.emitter.emit(" ");
+                self.generator.emitter.emit(name);
+                self.generator.emitter.emit(";\n");
+            }
+            GlobalDeclaration::Const { name, var_type, value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
                 let c_type = self.generator.map_type(&summit_type).to_string();
@@ -111,6 +121,16 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     pub fn emit_global_init(&mut self, global: &GlobalDeclaration) {
         match global {
+            GlobalDeclaration::Var { name, value, .. } => {
+                self.generator.emitter.indent();
+                self.generator.emitter.emit(name);
+                self.generator.emitter.emit(" = ");
+
+                let mut expr_gen = ExpressionGenerator::new(self.generator);
+                expr_gen.generate_expr(value);
+
+                self.generator.emitter.emit(";\n");
+            }
             GlobalDeclaration::Const { name, value, .. } => {
                 self.generator.emitter.indent();
                 self.generator.emitter.emit(name);

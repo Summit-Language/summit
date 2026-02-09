@@ -30,7 +30,7 @@ impl<'a> StatementGenerator<'a> {
                 step, filter, body } => {
                 self.emit_for_loop(variable, start, end, *inclusive, step, filter, body);
             }
-            Statement::Let { name, var_type, value } => {
+            Statement::Var { name, var_type, value } => {
                 self.emit_let_stmt(name, var_type, value);
             }
             Statement::Const { name, var_type, value } => {
@@ -146,8 +146,7 @@ impl<'a> StatementGenerator<'a> {
         self.generator.emitter.emit(&format!("; {}++) {{\n", variable));
 
         self.generator.emitter.indent_level += 1;
-
-        // Generate the loop body
+        
         for stmt in body {
             self.generate_stmt(stmt);
         }
@@ -179,6 +178,10 @@ impl<'a> StatementGenerator<'a> {
         body: &[Statement],
         c_type: &str,
     ) {
+        self.generator.emitter.indent();
+        self.generator.emitter.emit("{\n");
+        self.generator.emitter.indent_level += 1;
+
         self.generator.emitter.indent();
         self.generator.emitter.emit(&format!("{} {} = ", c_type, variable));
 
@@ -246,6 +249,9 @@ impl<'a> StatementGenerator<'a> {
 
         self.generator.emitter.indent_level -= 1;
         self.generator.emitter.emit_line("}");
+
+        self.generator.emitter.indent_level -= 1;
+        self.generator.emitter.emit_line("}");
     }
 
     fn emit_let_stmt(&mut self, name: &str, var_type: &Option<String>, value: &Expression) {
@@ -298,7 +304,6 @@ impl<'a> StatementGenerator<'a> {
     /// - `value`: Initialization expression
     fn emit_comptime_stmt(&mut self, name: &str, var_type: &Option<String>,
                           value: &Expression) {
-        // Comptime is implemented as const in C
         self.emit_const_stmt(name, var_type, value);
     }
 

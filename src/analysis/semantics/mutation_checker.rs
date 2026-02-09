@@ -26,7 +26,7 @@ impl MutationChecker {
     pub fn collect_mutations(&self, stmt: &Statement, mutations: &mut HashSet<String>,
                              var_declarations: &mut HashMap<String, bool>) -> Result<(), String> {
         match stmt {
-            Statement::Let { name, .. } => {
+            Statement::Var { name, .. } => {
                 var_declarations.insert(name.clone(), true);
                 Ok(())
             }

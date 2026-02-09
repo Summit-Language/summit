@@ -1,0 +1,15 @@
+import std::io;
+
+var global_count: i32 = 0;
+const MAX_VALUE: i32 = 100;
+
+func main(): i8 {
+    io::println("Global count: {}", global_count);
+
+    global_count = global_count + 1;
+    io::println("Global count after increment: {}", global_count);
+
+    io::println("Max value: {}", MAX_VALUE);
+
+    ret 0;
+}

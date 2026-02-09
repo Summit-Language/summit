@@ -54,11 +54,42 @@ impl SemanticAnalyzer {
         for import in &program.imports {
             self.imported_modules.insert(import.path.clone());
         }
-
+        
         for global in &program.globals {
             self.analyze_global(global)?;
         }
-
+        
+        for stmt in &program.statements {
+            match stmt {
+                Statement::Var { name, var_type, value } => {
+                    let scope_manager = ScopeManager::new(self);
+                    scope_manager.analyze_expression(value, &self.global_scope)?;
+                    let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
+                                                                     &self.functions)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                }
+                Statement::Const { name, var_type, value } => {
+                    let scope_manager = ScopeManager::new(self);
+                    scope_manager.analyze_expression(value, &self.global_scope)?;
+                    let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
+                                                                     &self.functions)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                }
+                Statement::Comptime { name, var_type, value } => {
+                    let compile_time_checker = CompileTimeChecker::new(self);
+                    if !compile_time_checker.is_compile_time_constant(value) {
+                        return Err(format!("Comptime global '{}' must be initialized with a compile-time constant", name));
+                    }
+                    let scope_manager = ScopeManager::new(self);
+                    scope_manager.analyze_expression(value, &self.global_scope)?;
+                    let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
+                                                                     &self.functions)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                }
+                _ => {}
+            }
+        }
+        
         for func in &program.functions {
             if self.functions.contains_key(&func.name) {
                 return Err(format!("Function '{}' is defined multiple times", func.name));
@@ -72,19 +103,33 @@ impl SemanticAnalyzer {
         }
 
         let has_main = self.functions.contains_key("main");
-        if has_main && !program.statements.is_empty() {
-            return Err("Cannot have top-level statements when a 'main' function is defined"
+
+        let actual_statements: Vec<&Statement> = program.statements.iter()
+            .filter(|stmt| !matches!(stmt,
+            Statement::Var { .. } |
+            Statement::Const { .. } |
+            Statement::Comptime { .. }
+        ))
+            .collect();
+
+        if has_main && !actual_statements.is_empty() {
+            return Err("Cannot have top-level executable statements when a 'main' function is defined"
                 .to_string());
         }
 
-        if !has_main && program.statements.is_empty() {
+        if !has_main && actual_statements.is_empty() && program.globals.is_empty() &&
+            program.statements.iter().all(|s| matches!(s,
+           Statement::Var { .. } |
+           Statement::Const { .. } |
+           Statement::Comptime { .. }
+       )) {
             return Err("No 'main' function defined and no top-level statements".to_string());
         }
-
-        if !program.statements.is_empty() {
+        
+        if !actual_statements.is_empty() && !has_main {
             let mut scope = self.global_scope.clone();
             let stmt_analyzer = StatementAnalyzer::new(self);
-            for stmt in &program.statements {
+            for stmt in &actual_statements {
                 stmt_analyzer.analyze_stmt(stmt, &mut scope)?;
             }
         }
@@ -109,6 +154,14 @@ impl SemanticAnalyzer {
         let compile_time_checker = CompileTimeChecker::new(self);
 
         match global {
+            GlobalDeclaration::Var { name, var_type, value } => {
+                let scope_manager = ScopeManager::new(self);
+                scope_manager.analyze_expression(value, &self.global_scope)?;
+                let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
+                                                                 &self.functions)?;
+                self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                Ok(())
+            }
             GlobalDeclaration::Const { name, var_type, value } => {
                 let scope_manager = ScopeManager::new(self);
                 scope_manager.analyze_expression(value, &self.global_scope)?;

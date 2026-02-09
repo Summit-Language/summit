@@ -1,0 +1,6 @@
+import std::io;
+
+func main(): i8 {
+    io::println("Hello, world!");
+    ret 0;
+}

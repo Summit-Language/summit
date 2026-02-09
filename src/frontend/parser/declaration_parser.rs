@@ -15,6 +15,47 @@ impl<'a> DeclarationParser<'a> {
         DeclarationParser { parser }
     }
 
+    /// Parses a global variable declaration.
+    ///
+    /// Format: `var {name}: {type} = {value};`
+    ///
+    /// # Parameters:
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `GlobalDeclaration::Var` if successful, or an error message.
+    pub fn parse_global_var(&mut self) -> Result<GlobalDeclaration, String> {
+        self.parser.expect(Token::Var)?;
+
+        let name = if let Token::Identifier(n) = self.parser.current() {
+            let name = n.clone();
+            self.parser.advance();
+            name
+        } else {
+            return Err("Expected variable name".to_string());
+        };
+
+        let var_type = if self.parser.current() == &Token::Colon {
+            self.parser.advance();
+            if let Token::Type(t) = self.parser.current() {
+                let typ = t.clone();
+                self.parser.advance();
+                Some(typ)
+            } else {
+                return Err("Expected type after colon".to_string());
+            }
+        } else {
+            None
+        };
+
+        self.parser.expect(Token::Assign)?;
+        let mut expr_parser = ExpressionParser::new(self.parser);
+        let value = expr_parser.parse_expr()?;
+        self.parser.expect(Token::Semicolon)?;
+
+        Ok(GlobalDeclaration::Var { name, var_type, value })
+    }
+
     /// Parses a global constant declaration.
     ///
     /// Format: `const {name}: {type} = {value};`

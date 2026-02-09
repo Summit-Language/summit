@@ -7,7 +7,7 @@ use super::expressions::Expression;
 #[derive(Debug, Clone)]
 pub enum Statement {
     /// A variable declaration: `var {name}: {type} = {value};`
-    Let {
+    Var {
         name: String,
         var_type: Option<String>,
         value: Expression

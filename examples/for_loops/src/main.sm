@@ -1,0 +1,29 @@
+import std::io;
+
+func main(): i8 {
+    // Exclusive for loop, index 0 to 9
+    for var i in 0 to 10 {
+        io::println(i);
+    }
+    io::println("");
+
+    // Inclusive for loop, index 0 to 10
+    for var i in 0 through 10 {
+        io::println(i);
+    }
+    io::println("");
+
+    // Exclusive for loop, with an index of 0 to 10 that counts up in 2's
+    // Prints: 0, 2, 4, 6, 8, and stops at 8 because 10 is exclusive
+    for var i in 0 to 10 where i % 2 == 0 {
+        io::println(i);
+    }
+    io::println("");
+
+    // Inclusive for loop, with an index of 0 to 10 that counts up in 2's
+    // Prints: 0, 2, 4, 6, 8, 10, and it includes 10 because it's inclusive
+    for var i in 0 through 10 where i % 2 == 0 {
+        io::println(i);
+    }
+    ret 0;
+}

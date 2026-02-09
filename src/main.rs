@@ -3,11 +3,12 @@ mod analysis;
 mod compiler;
 mod utils;
 mod commands;
+mod config;
 
 use std::env;
 use std::process::exit;
 
-use commands::{new_project, run_project, build_project};
+use commands::{new_project, run_project, build_project, clean_project};
 
 /// The main entry point for the Summit compiler.
 ///
@@ -38,24 +39,30 @@ fn main() {
         }
         "run" => {
             let file = if args.len() > 2 {
-                args[2].clone()
+                Some(args[2].as_str())
             } else {
-                "src/main.sm".to_string()
+                None
             };
 
-            if let Err(e) = run_project(&file) {
+            if let Err(e) = run_project(file) {
                 eprintln!("Error: {}", e);
                 exit(1);
             }
         }
         "build" => {
-            if args.len() < 3 {
-                eprintln!("Error: No input file specified");
-                eprintln!("Usage: summit build <input.sm>");
+            let build_args = if args.len() > 2 {
+                &args[2..]
+            } else {
+                &[]
+            };
+
+            if let Err(e) = build_project(build_args) {
+                eprintln!("Error: {}", e);
                 exit(1);
             }
-
-            if let Err(e) = build_project(&args[2..]) {
+        }
+        "clean" => {
+            if let Err(e) = clean_project() {
                 eprintln!("Error: {}", e);
                 exit(1);
             }
@@ -74,6 +81,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Usage:");
     eprintln!("  summit new [project_name]    Create a new Summit project");
-    eprintln!("  summit run [file]            Compile and run a Summit file (default: src/main.sm)");
-    eprintln!("  summit build <input.sm>      Compile a Summit file");
+    eprintln!("  summit run [file]            Compile and run a Summit file (default: uses Summit.toml)");
+    eprintln!("  summit build [file]          Compile a Summit file (default: uses Summit.toml)");
+    eprintln!("  summit clean                 Remove the built binaries");
 }

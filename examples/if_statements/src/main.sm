@@ -1,0 +1,11 @@
+import std::io;
+
+func main(): i8 {
+    const flag: bool = true;
+    if flag == true {
+        io::println("The flag is true");
+    } else {
+        io::println("The flag is false");
+    }
+    ret 0;
+}

@@ -4,6 +4,13 @@ use super::statements::Statement;
 /// A global declaration that appears at the top level of a program.
 #[derive(Debug, Clone)]
 pub enum GlobalDeclaration {
+    /// A global variable: `var {name}: {type} = {value};`
+    Var {
+        name: String,
+        var_type: Option<String>,
+        value: Expression,
+    },
+
     /// A global constant: `const {name}: {type} = {value};`
     Const {
         name: String,

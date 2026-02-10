@@ -58,6 +58,23 @@ impl<'a> TypeInference<'a> {
                 let else_type = self.infer_expression_type(else_expr);
                 self.wider_type(&then_type, &else_type)
             }
+            Expression::WhenExpr { cases, else_expr, .. } => {
+                if cases.is_empty() {
+                    return self.infer_expression_type(else_expr);
+                }
+                
+                let mut result_type = self.infer_expression_type(&cases[0].result);
+                
+                for case in &cases[1..] {
+                    let case_type = self.infer_expression_type(&case.result);
+                    result_type = self.wider_type(&result_type, &case_type);
+                }
+                
+                let else_type = self.infer_expression_type(else_expr);
+                result_type = self.wider_type(&result_type, &else_type);
+
+                result_type
+            }
         }
     }
 
@@ -71,12 +88,10 @@ impl<'a> TypeInference<'a> {
     /// # Returns
     /// The inferred return type as a string
     fn infer_call_type(&self, path: &[String], type_args: &Option<Vec<String>>) -> String {
-        // Check for readln
         if IoPathMatcher::is_readln(path) {
             return "str".to_string();
         }
-
-        // Check for generic read
+        
         if IoPathMatcher::is_read(path) {
             if let Some(types) = type_args {
                 if types.len() == 1 {

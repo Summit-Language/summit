@@ -26,6 +26,9 @@ impl<'a> StatementGenerator<'a> {
     /// - `stmt`: The statement to generate code for
     pub fn generate_stmt(&mut self, stmt: &Statement) {
         match stmt {
+            Statement::When { value, cases, else_block } => {
+                self.emit_when_stmt(value, cases, else_block);
+            }
             Statement::For { variable, start, end, inclusive,
                 step, filter, body } => {
                 self.emit_for_loop(variable, start, end, *inclusive, step, filter, body);
@@ -61,10 +64,287 @@ impl<'a> StatementGenerator<'a> {
             Statement::Stop => {
                 self.emit_stop_stmt();
             }
+            Statement::Fallthrough => {
+                self.emit_fallthrough_stmt();
+            }
         }
     }
 
-    /// Generates C code for a next statement (continue).
+    /// Generates C code for a when statement.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to switch on
+    /// - `cases`: The when cases
+    /// - `else_block`: Optional default case
+    fn emit_when_stmt(&mut self, value: &Expression, cases: &[WhenCase],
+                      else_block: &Option<Vec<Statement>>) {
+        // Check if any case has a range pattern
+        let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
+
+        if has_ranges {
+            // Use if-else chain for range patterns
+            self.emit_when_with_ranges(value, cases, else_block);
+        } else {
+            // Use switch statement for simple patterns
+            self.emit_when_with_switch(value, cases, else_block);
+        }
+    }
+
+    /// Generates C code for when statement using if-else chain for range patterns.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_block`: Optional default case
+    fn emit_when_with_ranges(&mut self, value: &Expression, cases: &[WhenCase],
+                             else_block: &Option<Vec<Statement>>) {
+        let has_any_fallthrough = cases.iter().any(|case| {
+            if let Some(last_stmt) = case.body.last() {
+                matches!(last_stmt, Statement::Fallthrough)
+            } else {
+                false
+            }
+        });
+
+        if has_any_fallthrough {
+            self.generator.emitter.indent();
+            self.generator.emitter.emit("{\n");
+            self.generator.emitter.indent_level += 1;
+
+            self.generator.emitter.indent();
+            let type_inference = TypeInference::new(&self.generator.symbol_table,
+                                                    &self.generator.function_signatures);
+            let value_type = type_inference.infer_expression_type(value);
+            let c_type = self.generator.map_type(&value_type).to_string();
+
+            self.generator.emitter.emit(&format!("{} __when_value = ", c_type));
+            let mut expr_gen = ExpressionGenerator::new(self.generator);
+            expr_gen.generate_expr(value);
+            self.generator.emitter.emit(";\n");
+
+            self.generator.emitter.indent();
+            self.generator.emitter.emit("int __when_matched = 0;\n");
+
+            for (i, case) in cases.iter().enumerate() {
+                self.generator.emitter.indent();
+                self.generator.emitter.emit(&format!("__when_case_{}:\n", i));
+
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("if (__when_matched || (");
+
+                match &case.pattern {
+                    WhenPattern::Single(expr) => {
+                        self.generator.emitter.emit("__when_value == ");
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(expr);
+                    }
+                    WhenPattern::Range { start, end, inclusive } => {
+                        self.generator.emitter.emit("__when_value >= ");
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(start);
+
+                        self.generator.emitter.emit(" && __when_value ");
+                        if *inclusive {
+                            self.generator.emitter.emit("<= ");
+                        } else {
+                            self.generator.emitter.emit("< ");
+                        }
+
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(end);
+                    }
+                }
+
+                self.generator.emitter.emit(")) {\n");
+                self.generator.emitter.indent_level += 1;
+
+                let has_fallthrough = if let Some(last_stmt) = case.body.last() {
+                    matches!(last_stmt, Statement::Fallthrough)
+                } else {
+                    false
+                };
+
+                for stmt in &case.body {
+                    if !matches!(stmt, Statement::Fallthrough) {
+                        self.generate_stmt(stmt);
+                    }
+                }
+
+                if has_fallthrough {
+                    self.generator.emitter.indent();
+                    self.generator.emitter.emit("__when_matched = 1;\n");
+                    if i + 1 < cases.len() {
+                        self.generator.emitter.indent();
+                        self.generator.emitter.emit(&format!("goto __when_case_{};\n", i + 1));
+                    }
+                } else {
+                    self.generator.emitter.indent();
+                    self.generator.emitter.emit("__when_matched = 1;\n");
+                }
+
+                self.generator.emitter.indent_level -= 1;
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("}\n");
+            }
+
+            if let Some(else_stmts) = else_block {
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("if (!__when_matched) {\n");
+
+                self.generator.emitter.indent_level += 1;
+
+                for stmt in else_stmts {
+                    self.generate_stmt(stmt);
+                }
+
+                self.generator.emitter.indent_level -= 1;
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("}\n");
+            }
+
+            self.generator.emitter.indent_level -= 1;
+            self.generator.emitter.emit_line("}");
+        } else {
+            let mut first = true;
+
+            for case in cases {
+                self.generator.emitter.indent();
+
+                if first {
+                    self.generator.emitter.emit("if (");
+                    first = false;
+                } else {
+                    self.generator.emitter.emit("else if (");
+                }
+
+                match &case.pattern {
+                    WhenPattern::Single(expr) => {
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(value);
+                        self.generator.emitter.emit(" == ");
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(expr);
+                    }
+                    WhenPattern::Range { start, end, inclusive } => {
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(value);
+                        self.generator.emitter.emit(" >= ");
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(start);
+
+                        self.generator.emitter.emit(" && ");
+
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(value);
+
+                        if *inclusive {
+                            self.generator.emitter.emit(" <= ");
+                        } else {
+                            self.generator.emitter.emit(" < ");
+                        }
+
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(end);
+                    }
+                }
+
+                self.generator.emitter.emit(") {\n");
+                self.generator.emitter.indent_level += 1;
+
+                for stmt in &case.body {
+                    self.generate_stmt(stmt);
+                }
+
+                self.generator.emitter.indent_level -= 1;
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("}\n");
+            }
+
+            if let Some(else_stmts) = else_block {
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("else {\n");
+
+                self.generator.emitter.indent_level += 1;
+
+                for stmt in else_stmts {
+                    self.generate_stmt(stmt);
+                }
+
+                self.generator.emitter.indent_level -= 1;
+                self.generator.emitter.emit_line("}");
+            }
+        }
+    }
+
+    /// Generates C code for when statement using switch for single-value patterns only.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to switch on
+    /// - `cases`: The when cases
+    /// - `else_block`: Optional default case
+    fn emit_when_with_switch(&mut self, value: &Expression, cases: &[WhenCase],
+                             else_block: &Option<Vec<Statement>>) {
+        self.generator.emitter.indent();
+        self.generator.emitter.emit("switch (");
+
+        let mut expr_gen = ExpressionGenerator::new(self.generator);
+        expr_gen.generate_expr(value);
+
+        self.generator.emitter.emit(") {\n");
+        self.generator.emitter.indent_level += 1;
+
+        for case in cases {
+            self.generator.emitter.indent();
+            self.generator.emitter.emit("case ");
+
+            if let WhenPattern::Single(expr) = &case.pattern {
+                let mut expr_gen = ExpressionGenerator::new(self.generator);
+                expr_gen.generate_expr(expr);
+            }
+
+            self.generator.emitter.emit(":\n");
+            self.generator.emitter.indent_level += 1;
+
+            let has_fallthrough = if let Some(last_stmt) = case.body.last() {
+                matches!(last_stmt, Statement::Fallthrough)
+            } else {
+                false
+            };
+
+            for stmt in &case.body {
+                self.generate_stmt(stmt);
+            }
+
+            if !has_fallthrough {
+                self.generator.emitter.indent();
+                self.generator.emitter.emit("break;\n");
+            }
+
+            self.generator.emitter.indent_level -= 1;
+        }
+
+        if let Some(else_stmts) = else_block {
+            self.generator.emitter.indent();
+            self.generator.emitter.emit("default:\n");
+            self.generator.emitter.indent_level += 1;
+
+            for stmt in else_stmts {
+                self.generate_stmt(stmt);
+            }
+
+            self.generator.emitter.indent();
+            self.generator.emitter.emit("break;\n");
+            self.generator.emitter.indent_level -= 1;
+        }
+
+        self.generator.emitter.indent_level -= 1;
+        self.generator.emitter.emit_line("}");
+    }
+
+    /// Generates C code for a next statement.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -72,12 +352,21 @@ impl<'a> StatementGenerator<'a> {
         self.generator.emitter.emit_line("continue;");
     }
 
-    /// Generates C code for a stop statement (break).
+    /// Generates C code for a stop statement.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
     fn emit_stop_stmt(&mut self) {
         self.generator.emitter.emit_line("break;");
+    }
+
+    /// Generates C code for a fallthrough statement.
+    /// In C, fallthrough is implicit, so we just add a comment.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    fn emit_fallthrough_stmt(&mut self) {
+        self.generator.emitter.emit_line("/* fallthrough */");
     }
 
     /// Emits the step expression for a for loop, or "1" if no step is provided.
@@ -177,7 +466,7 @@ impl<'a> StatementGenerator<'a> {
         self.generator.emitter.emit_line("}");
     }
 
-    /// Generates a complex for loop (with step, filter, or negative iteration).
+    /// Generates a complex for loop.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -296,6 +585,14 @@ impl<'a> StatementGenerator<'a> {
         TypeResolver::register_variable(&mut self.generator.symbol_table, name, summit_type);
     }
 
+
+    /// Generates C code for a const statement.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `name`: Variable name
+    /// - `var_type`: Optional type annotation
+    /// - `value`: Initialization expression
     fn emit_const_stmt(&mut self, name: &str, var_type: &Option<String>, value: &Expression) {
         self.generator.emitter.indent();
 

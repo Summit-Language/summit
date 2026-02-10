@@ -1,0 +1,35 @@
+import std::io;
+
+func main(): i8 {
+    const x: i8 = 1;
+
+    when x {
+        is 1 -> io::println("It is 1");
+        is 2 -> io::println("It is 2");
+        else -> io::println("Nah");
+    }
+
+    const y: i8 = 20;
+
+    when y {
+        is 1 {
+            io::println("It is 1 through 10");
+            fallthrough;
+        }
+        is 20 -> io::println("It is 20 through 30");
+        else -> io::println("Nah");
+    }
+
+    const age: u8 = 16;
+
+    const label: str = when age {
+        is 0 through 12 -> "child"
+        is 13 through 19 -> "teen"
+        is 20 through 64 -> "adult"
+        else -> "senior"
+    };
+
+    io::println(label);
+
+    ret 0;
+}

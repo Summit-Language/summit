@@ -62,6 +62,28 @@ impl<'a> StdlibCollector<'a> {
     /// - `stmt`: The statement to analyze
     pub fn collect_from_stmt(&mut self, stmt: &Statement) {
         match stmt {
+            Statement::When { value, cases, else_block } => {
+                self.collect_from_expr(value);
+                for case in cases {
+                    match &case.pattern {
+                        WhenPattern::Single(expr) => {
+                            self.collect_from_expr(expr);
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.collect_from_expr(start);
+                            self.collect_from_expr(end);
+                        }
+                    }
+                    for s in &case.body {
+                        self.collect_from_stmt(s);
+                    }
+                }
+                if let Some(else_stmts) = else_block {
+                    for s in else_stmts {
+                        self.collect_from_stmt(s);
+                    }
+                }
+            }
             Statement::For { start, end, step,
                 filter, body, .. } => {
                 self.collect_from_expr(start);
@@ -117,6 +139,7 @@ impl<'a> StdlibCollector<'a> {
             }
             Statement::Next => {}
             Statement::Stop => {}
+            Statement::Fallthrough => {}
         }
     }
 

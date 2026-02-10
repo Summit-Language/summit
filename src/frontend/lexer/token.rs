@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// All possible tokens in the Nova language.
+/// All possible tokens in the Summit language.
 ///
 /// This enum represents every token that the lexer can produce.
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +18,9 @@ pub enum Token {
     For,
     Next,
     Stop,
+    When,
+    Is,
+    Fallthrough,
     In,
     To,
     Through,
@@ -50,6 +53,7 @@ pub enum Token {
     LessEqual,
     GreaterEqual,
     Question,
+    Arrow,
 
     // Delimiters
     DoubleColon,

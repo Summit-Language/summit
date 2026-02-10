@@ -41,7 +41,123 @@ impl<'a> ExpressionGenerator<'a> {
                 else_expr } => {
                 self.emit_if_expr(condition, then_expr, else_expr);
             }
+            Expression::WhenExpr { value, cases, else_expr } => {
+                self.emit_when_expr(value, cases, else_expr);
+            }
         }
+    }
+
+    /// Emits C code for a when expression.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_expr`: The default expression
+    fn emit_when_expr(&mut self, value: &Expression, cases: &[WhenExprCase],
+                      else_expr: &Expression) {
+        // Check if any case has a range pattern
+        let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
+
+        if has_ranges {
+            // Use nested ternary operators with range checks
+            self.emit_when_expr_with_ranges(value, cases, else_expr);
+        } else {
+            // Use simple nested ternary operators
+            self.emit_when_expr_with_ternary(value, cases, else_expr);
+        }
+    }
+
+    /// Emits C code for when expression using nested ternary operators with range checks.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_expr`: The default expression
+    fn emit_when_expr_with_ranges(&mut self, value: &Expression, cases: &[WhenExprCase],
+                                  else_expr: &Expression) {
+        self.generator.emitter.emit("(");
+
+        for (i, case) in cases.iter().enumerate() {
+            if i > 0 {
+                self.generator.emitter.emit(" : ");
+            }
+
+            self.generator.emitter.emit("(");
+
+            match &case.pattern {
+                WhenPattern::Single(pattern_expr) => {
+                    self.generator.emitter.emit("(");
+                    self.generate_expr(value);
+                    self.generator.emitter.emit(") == (");
+                    self.generate_expr(pattern_expr);
+                    self.generator.emitter.emit(")");
+                }
+                WhenPattern::Range { start, end, inclusive } => {
+                    self.generator.emitter.emit("(");
+                    self.generate_expr(value);
+                    self.generator.emitter.emit(") >= (");
+                    self.generate_expr(start);
+                    self.generator.emitter.emit(") && (");
+                    self.generate_expr(value);
+                    self.generator.emitter.emit(")");
+
+                    if *inclusive {
+                        self.generator.emitter.emit(" <= (");
+                    } else {
+                        self.generator.emitter.emit(" < (");
+                    }
+
+                    self.generate_expr(end);
+                    self.generator.emitter.emit(")");
+                }
+            }
+
+            self.generator.emitter.emit(") ? (");
+            self.generate_expr(&case.result);
+            self.generator.emitter.emit(")");
+        }
+
+        self.generator.emitter.emit(" : (");
+        self.generate_expr(else_expr);
+        self.generator.emitter.emit(")");
+
+        self.generator.emitter.emit(")");
+    }
+
+    /// Emits C code for when expression using simple nested ternary operators.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_expr`: The default expression
+    fn emit_when_expr_with_ternary(&mut self, value: &Expression, cases: &[WhenExprCase],
+                                   else_expr: &Expression) {
+        self.generator.emitter.emit("(");
+
+        for (i, case) in cases.iter().enumerate() {
+            if i > 0 {
+                self.generator.emitter.emit(" : ");
+            }
+
+            if let WhenPattern::Single(pattern_expr) = &case.pattern {
+                self.generator.emitter.emit("(");
+                self.generate_expr(value);
+                self.generator.emitter.emit(") == (");
+                self.generate_expr(pattern_expr);
+                self.generator.emitter.emit(") ? (");
+                self.generate_expr(&case.result);
+                self.generator.emitter.emit(")");
+            }
+        }
+
+        self.generator.emitter.emit(" : (");
+        self.generate_expr(else_expr);
+        self.generator.emitter.emit(")");
+
+        self.generator.emitter.emit(")");
     }
 
     /// Emits C code for a ternary expression.
@@ -135,7 +251,7 @@ impl<'a> ExpressionGenerator<'a> {
             self.generator.emitter.emit(")");
             return;
         }
-        
+
         let type_inference = TypeInference::new(&self.generator.symbol_table,
                                                 &self.generator.function_signatures);
         let arg_types: Vec<String> = args.iter()

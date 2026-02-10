@@ -134,6 +134,77 @@ impl<'a> ExpressionAnalyzer<'a> {
 
                 Ok(())
             }
+            Expression::WhenExpr { value, cases, else_expr } => {
+                self.analyze_expr(value, scope)?;
+
+                let value_type = self.analyzer.type_checker.infer_type(value, scope,
+                                                                       &self.analyzer.functions)?;
+
+                let mut result_types = Vec::new();
+
+                for case in cases {
+                    match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            self.analyze_expr(pattern_expr, scope)?;
+
+                            let pattern_type = self.analyzer.type_checker.infer_type(
+                                pattern_expr, scope, &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &pattern_type) {
+                                return Err(format!(
+                                    "When pattern type '{}' is incompatible with value type '{}'",
+                                    pattern_type, value_type
+                                ));
+                            }
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.analyze_expr(start, scope)?;
+                            self.analyze_expr(end, scope)?;
+
+                            let start_type = self.analyzer.type_checker.infer_type(
+                                start, scope, &self.analyzer.functions)?;
+                            let end_type = self.analyzer.type_checker.infer_type(
+                                end, scope, &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &start_type) {
+                                return Err(format!(
+                                    "When range start type '{}' is incompatible with value type '{}'",
+                                    start_type, value_type
+                                ));
+                            }
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &end_type) {
+                                return Err(format!(
+                                    "When range end type '{}' is incompatible with value type '{}'",
+                                    end_type, value_type
+                                ));
+                            }
+                        }
+                    }
+
+                    self.analyze_expr(&case.result, scope)?;
+
+                    let result_type = self.analyzer.type_checker.infer_type(
+                        &case.result, scope, &self.analyzer.functions)?;
+                    result_types.push(result_type);
+                }
+
+                self.analyze_expr(else_expr, scope)?;
+                let else_type = self.analyzer.type_checker.infer_type(
+                    else_expr, scope, &self.analyzer.functions)?;
+                result_types.push(else_type);
+
+                for i in 1..result_types.len() {
+                    if !self.analyzer.type_checker.types_compatible(&result_types[0], &result_types[i]) {
+                        return Err(format!(
+                            "When expression branches have incompatible result types: '{}' and '{}'",
+                            result_types[0], result_types[i]
+                        ));
+                    }
+                }
+
+                Ok(())
+            }
         }
     }
 

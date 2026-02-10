@@ -1,0 +1,4 @@
+[project]
+name = "when_statements"
+version = "0.1.0"
+main = "src/main.sm"

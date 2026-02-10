@@ -27,7 +27,7 @@ impl CompileTimeChecker {
                                          runtime_globals: &HashSet<String>) -> bool {
         match expr {
             Expression::IntLiteral(_) | Expression::StringLiteral(_) | Expression::BoolLiteral(_)
-                | Expression::NullLiteral => true,
+            | Expression::NullLiteral => true,
             Expression::Variable(name) => {
                 !runtime_globals.contains(name)
             }
@@ -42,6 +42,33 @@ impl CompileTimeChecker {
                 self.is_compile_time_constant_expr(condition, runtime_globals) &&
                     self.is_compile_time_constant_expr(then_expr, runtime_globals) &&
                     self.is_compile_time_constant_expr(else_expr, runtime_globals)
+            }
+            Expression::WhenExpr { value, cases, else_expr } => {
+                if !self.is_compile_time_constant_expr(value, runtime_globals) {
+                    return false;
+                }
+
+                for case in cases {
+                    let pattern_is_constant = match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            self.is_compile_time_constant_expr(pattern_expr, runtime_globals)
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.is_compile_time_constant_expr(start, runtime_globals) &&
+                                self.is_compile_time_constant_expr(end, runtime_globals)
+                        }
+                    };
+
+                    if !pattern_is_constant {
+                        return false;
+                    }
+                    
+                    if !self.is_compile_time_constant_expr(&case.result, runtime_globals) {
+                        return false;
+                    }
+                }
+                
+                self.is_compile_time_constant_expr(else_expr, runtime_globals)
             }
             Expression::Call { .. } => false,
         }

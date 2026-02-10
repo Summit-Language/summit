@@ -1,3 +1,4 @@
+use crate::frontend::ast::WhenPattern;
 use super::operators::{BinaryOp, UnaryOp};
 
 /// All the different kinds of expressions in Summit.
@@ -50,12 +51,25 @@ pub enum Expression {
     },
 
     /// An if expression: `if condition { ... } else { ... }`
-    ///
-    /// Unlike an if statement, this returns a value from either
-    /// the then block or the else block.
     IfExpr {
         condition: Box<Expression>,
         then_expr: Box<Expression>,
         else_expr: Box<Expression>
     },
+
+    /// A when expression: `when value { is pattern -> expr, ... else -> expr }`
+    ///
+    /// Returns a value based on pattern matching.
+    WhenExpr {
+        value: Box<Expression>,
+        cases: Vec<WhenExprCase>,
+        else_expr: Box<Expression>
+    },
+}
+
+/// A single case in a when expression
+#[derive(Debug, Clone)]
+pub struct WhenExprCase {
+    pub pattern: WhenPattern,
+    pub result: Expression,
 }

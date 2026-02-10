@@ -32,9 +32,11 @@ impl<'a> StatementParser<'a> {
             Token::Ret => self.parse_return(),
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
+            Token::When => self.parse_when(),
             Token::For => self.parse_for(),
             Token::Next => self.parse_next(),
             Token::Stop => self.parse_stop(),
+            Token::Fallthrough => self.parse_fallthrough(),
             Token::Identifier(_) => {
                 if self.parser.peek(1) == &Token::Assign {
                     self.parse_assign()
@@ -84,6 +86,127 @@ impl<'a> StatementParser<'a> {
         Ok(Statement::Stop)
     }
 
+    /// Parses a fallthrough statement.
+    ///
+    /// Format: `fallthrough;`
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `Statement::Fallthrough` or an error message.
+    fn parse_fallthrough(&mut self) -> Result<Statement, String> {
+        self.parser.expect(Token::Fallthrough)?;
+        self.parser.expect(Token::Semicolon)?;
+        Ok(Statement::Fallthrough)
+    }
+
+    /// Parses a when statement (switch/match).
+    ///
+    /// Format: `when value { is pattern { ... } is pattern { ... } else { ... } }`
+    /// Or single-line: `when value { is pattern -> statement; }`
+    /// Patterns can be:
+    /// - Single values: `is 5`
+    /// - Ranges: `is 1 to 10` (exclusive) or `is 1 through 10` (inclusive)
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `Statement::When` or an error message.
+    fn parse_when(&mut self) -> Result<Statement, String> {
+        self.parser.expect(Token::When)?;
+
+        let mut expr_parser = ExpressionParser::new(self.parser);
+        let value = expr_parser.parse_expr()?;
+
+        self.parser.expect(Token::LeftBrace)?;
+
+        let mut cases = Vec::new();
+
+        while self.parser.current() == &Token::Is {
+            self.parser.advance();
+
+            let mut expr_parser = ExpressionParser::new(self.parser);
+            let start_expr = expr_parser.parse_or()?;
+
+            let pattern = if self.parser.current() == &Token::To {
+                self.parser.advance();
+                let mut expr_parser = ExpressionParser::new(self.parser);
+                let end_expr = expr_parser.parse_or()?;
+                WhenPattern::Range {
+                    start: start_expr,
+                    end: end_expr,
+                    inclusive: false,
+                }
+            } else if self.parser.current() == &Token::Through {
+                self.parser.advance();
+                let mut expr_parser = ExpressionParser::new(self.parser);
+                let end_expr = expr_parser.parse_or()?;
+                WhenPattern::Range {
+                    start: start_expr,
+                    end: end_expr,
+                    inclusive: true,
+                }
+            } else {
+                WhenPattern::Single(start_expr)
+            };
+
+            let case_body = if self.parser.current() == &Token::Arrow {
+                self.parser.advance();
+                let stmt = self.parse_stmt()?;
+                vec![stmt]
+            } else {
+                self.parser.expect(Token::LeftBrace)?;
+
+                let mut stmts = Vec::new();
+                while self.parser.current() != &Token::RightBrace {
+                    stmts.push(self.parse_stmt()?);
+                }
+
+                self.parser.expect(Token::RightBrace)?;
+                stmts
+            };
+
+            cases.push(WhenCase {
+                pattern,
+                body: case_body,
+            });
+        }
+
+        let else_block = if self.parser.current() == &Token::Else {
+            self.parser.advance();
+
+            if self.parser.current() == &Token::Arrow {
+                self.parser.advance();
+                let stmt = self.parse_stmt()?;
+                Some(vec![stmt])
+            } else {
+                self.parser.expect(Token::LeftBrace)?;
+                let mut else_stmts = Vec::new();
+                while self.parser.current() != &Token::RightBrace {
+                    else_stmts.push(self.parse_stmt()?);
+                }
+                self.parser.expect(Token::RightBrace)?;
+                Some(else_stmts)
+            }
+        } else {
+            None
+        };
+
+        self.parser.expect(Token::RightBrace)?;
+
+        if cases.is_empty() && else_block.is_none() {
+            return Err("When statement must have at least one 'is' case or an 'else' block".to_string());
+        }
+
+        Ok(Statement::When {
+            value,
+            cases,
+            else_block,
+        })
+    }
+
     /// Parses a for loop statement.
     ///
     /// Formats:
@@ -93,7 +216,6 @@ impl<'a> StatementParser<'a> {
     /// - `for var {x} in {start_range} through {end_range} where {expression} { ... }`
     /// - `for var {x} in {start_range} to {end_range} by {number} { ... }`
     /// - `for var {x} in {start_range} through {end_range} by {number} { ... }`
-    ///
     /// # Parameters
     /// - `self`: Mutable reference to self
     ///

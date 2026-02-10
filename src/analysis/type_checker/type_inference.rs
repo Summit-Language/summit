@@ -50,6 +50,9 @@ impl TypeInference {
             Expression::IfExpr { then_expr, else_expr, .. } => {
                 self.infer_if_expr_type(then_expr, else_expr, scope, functions, type_utils)
             }
+            Expression::WhenExpr { cases, else_expr, .. } => {
+                self.infer_when_expr_type(cases, else_expr, scope, functions, type_utils)
+            }
         }
     }
 
@@ -195,5 +198,39 @@ impl TypeInference {
         let then_type = self.infer_type(then_expr, scope, functions, type_utils)?;
         let else_type = self.infer_type(else_expr, scope, functions, type_utils)?;
         Ok(type_utils.wider_type(&then_type, &else_type))
+    }
+
+    /// Infers the result type of when expression.
+    ///
+    /// # Parameters
+    /// - `self`: Immutable reference to self
+    /// - `cases`: The when cases
+    /// - `else_expr`: The else branch expression
+    /// - `scope`: Current variable scope with type information
+    /// - `functions`: Available function definitions
+    /// - `type_utils`: Type utility functions
+    ///
+    /// # Returns
+    /// Result containing the inferred type or an error message
+    fn infer_when_expr_type(&self, cases: &[WhenExprCase], else_expr: &Expression,
+                            scope: &HashMap<String, String>, functions: &HashMap<String, Function>,
+                            type_utils: &TypeCheckerUtils) -> Result<String, String> {
+        if cases.is_empty() {
+            return self.infer_type(else_expr, scope, functions, type_utils);
+        }
+
+        let first_type = self.infer_type(&cases[0].result, scope, functions, type_utils)?;
+        
+        let mut result_type = first_type;
+
+        for case in &cases[1..] {
+            let case_type = self.infer_type(&case.result, scope, functions, type_utils)?;
+            result_type = type_utils.wider_type(&result_type, &case_type);
+        }
+
+        let else_type = self.infer_type(else_expr, scope, functions, type_utils)?;
+        result_type = type_utils.wider_type(&result_type, &else_type);
+
+        Ok(result_type)
     }
 }

@@ -40,6 +40,72 @@ impl<'a> StatementAnalyzer<'a> {
                                          func_name: &str,
                                          expected_return_type: &str) -> Result<(), String> {
         match stmt {
+            Statement::When { value, cases, else_block } => {
+                let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
+                expr_analyzer.analyze_expr(value, scope)?;
+
+                let value_type = self.analyzer.type_checker.infer_type(value, scope,
+                                                                       &self.analyzer.functions)?;
+
+                for case in cases {
+                    match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            expr_analyzer.analyze_expr(pattern_expr, scope)?;
+                            let pattern_type = self.analyzer.type_checker.infer_type(pattern_expr,
+                                                                                     scope,
+                                                                                     &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &pattern_type) {
+                                return Err(format!(
+                                    "When case pattern has incompatible type '{}', expected '{}'",
+                                    pattern_type, value_type
+                                ));
+                            }
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            expr_analyzer.analyze_expr(start, scope)?;
+                            expr_analyzer.analyze_expr(end, scope)?;
+
+                            let start_type = self.analyzer.type_checker.infer_type(start,
+                                                                                   scope,
+                                                                                   &self.analyzer.functions)?;
+                            let end_type = self.analyzer.type_checker.infer_type(end,
+                                                                                 scope,
+                                                                                 &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &start_type) {
+                                return Err(format!(
+                                    "When case range start has incompatible type '{}', expected '{}'",
+                                    start_type, value_type
+                                ));
+                            }
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &end_type) {
+                                return Err(format!(
+                                    "When case range end has incompatible type '{}', expected '{}'",
+                                    end_type, value_type
+                                ));
+                            }
+                        }
+                    }
+
+                    let mut case_scope = scope.clone();
+                    for stmt in &case.body {
+                        self.analyze_stmt_with_return_type(stmt, &mut case_scope, func_name,
+                                                           expected_return_type)?;
+                    }
+                }
+
+                if let Some(else_stmts) = else_block {
+                    let mut else_scope = scope.clone();
+                    for stmt in else_stmts {
+                        self.analyze_stmt_with_return_type(stmt, &mut else_scope, func_name,
+                                                           expected_return_type)?;
+                    }
+                }
+
+                Ok(())
+            }
             Statement::For { variable, start, end,
                 step, filter, body, .. } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
@@ -180,6 +246,9 @@ impl<'a> StatementAnalyzer<'a> {
             Statement::Stop => {
                 Ok(())
             }
+            Statement::Fallthrough => {
+                Ok(())
+            }
             _ => {
                 self.analyze_stmt(stmt, scope)
             }
@@ -198,6 +267,70 @@ impl<'a> StatementAnalyzer<'a> {
     pub fn analyze_stmt(&self, stmt: &Statement,
                         scope: &mut HashMap<String, String>) -> Result<(), String> {
         match stmt {
+            Statement::When { value, cases, else_block } => {
+                let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
+                expr_analyzer.analyze_expr(value, scope)?;
+
+                let value_type = self.analyzer.type_checker.infer_type(value, scope,
+                                                                       &self.analyzer.functions)?;
+
+                for case in cases {
+                    match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            expr_analyzer.analyze_expr(pattern_expr, scope)?;
+                            let pattern_type = self.analyzer.type_checker.infer_type(pattern_expr,
+                                                                                     scope,
+                                                                                     &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &pattern_type) {
+                                return Err(format!(
+                                    "When case pattern has incompatible type '{}', expected '{}'",
+                                    pattern_type, value_type
+                                ));
+                            }
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            expr_analyzer.analyze_expr(start, scope)?;
+                            expr_analyzer.analyze_expr(end, scope)?;
+
+                            let start_type = self.analyzer.type_checker.infer_type(start,
+                                                                                   scope,
+                                                                                   &self.analyzer.functions)?;
+                            let end_type = self.analyzer.type_checker.infer_type(end,
+                                                                                 scope,
+                                                                                 &self.analyzer.functions)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &start_type) {
+                                return Err(format!(
+                                    "When case range start has incompatible type '{}', expected '{}'",
+                                    start_type, value_type
+                                ));
+                            }
+
+                            if !self.analyzer.type_checker.types_compatible(&value_type, &end_type) {
+                                return Err(format!(
+                                    "When case range end has incompatible type '{}', expected '{}'",
+                                    end_type, value_type
+                                ));
+                            }
+                        }
+                    }
+
+                    let mut case_scope = scope.clone();
+                    for stmt in &case.body {
+                        self.analyze_stmt(stmt, &mut case_scope)?;
+                    }
+                }
+
+                if let Some(else_stmts) = else_block {
+                    let mut else_scope = scope.clone();
+                    for stmt in else_stmts {
+                        self.analyze_stmt(stmt, &mut else_scope)?;
+                    }
+                }
+
+                Ok(())
+            }
             Statement::For { variable, start, end,
                 step, filter, body, .. } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
@@ -403,6 +536,9 @@ impl<'a> StatementAnalyzer<'a> {
                 Ok(())
             }
             Statement::Stop => {
+                Ok(())
+            }
+            Statement::Fallthrough => {
                 Ok(())
             }
         }

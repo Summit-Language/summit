@@ -45,6 +45,33 @@ impl<'a> CompileTimeChecker<'a> {
                     self.is_compile_time_constant(then_expr) &&
                     self.is_compile_time_constant(else_expr)
             }
+            Expression::WhenExpr { value, cases, else_expr } => {
+                if !self.is_compile_time_constant(value) {
+                    return false;
+                }
+                
+                for case in cases {
+                    let pattern_is_constant = match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            self.is_compile_time_constant(pattern_expr)
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.is_compile_time_constant(start) &&
+                                self.is_compile_time_constant(end)
+                        }
+                    };
+
+                    if !pattern_is_constant {
+                        return false;
+                    }
+                    
+                    if !self.is_compile_time_constant(&case.result) {
+                        return false;
+                    }
+                }
+                
+                self.is_compile_time_constant(else_expr)
+            }
             _ => false,
         }
     }
@@ -72,6 +99,33 @@ impl<'a> CompileTimeChecker<'a> {
                 self.is_compile_time_evaluable(condition) &&
                     self.is_compile_time_evaluable(then_expr) &&
                     self.is_compile_time_evaluable(else_expr)
+            }
+            Expression::WhenExpr { value, cases, else_expr } => {
+                if !self.is_compile_time_evaluable(value) {
+                    return false;
+                }
+                
+                for case in cases {
+                    let pattern_is_evaluable = match &case.pattern {
+                        WhenPattern::Single(pattern_expr) => {
+                            self.is_compile_time_evaluable(pattern_expr)
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.is_compile_time_evaluable(start) &&
+                                self.is_compile_time_evaluable(end)
+                        }
+                    };
+
+                    if !pattern_is_evaluable {
+                        return false;
+                    }
+
+                    if !self.is_compile_time_evaluable(&case.result) {
+                        return false;
+                    }
+                }
+
+                self.is_compile_time_evaluable(else_expr)
             }
             Expression::Call { .. } => false,
         }

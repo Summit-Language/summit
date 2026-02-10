@@ -41,7 +41,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
             }
             continue;
         }
-        
+
         if chars[i].is_alphabetic() || chars[i] == '_' {
             tokens.push(tokenize_identifier(&chars, &mut i));
             continue;
@@ -152,6 +152,9 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "if" => Token::If,
         "else" => Token::Else,
         "while" => Token::While,
+        "when" => Token::When,
+        "is" => Token::Is,
+        "fallthrough" => Token::Fallthrough,
         "next" => Token::Next,
         "stop" => Token::Stop,
         "for" => Token::For,
@@ -167,7 +170,7 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "true" => Token::True,
         "false" => Token::False,
         "bool" => Token::Type("bool".to_string()),
-        "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" 
+        "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16"
         | "u32" | "u64" | "u128" | "void" | "str" => {
             Token::Type(word)
         }
@@ -192,6 +195,7 @@ fn tokenize_two_char_operator(chars: &[char], i: usize) -> Option<Token> {
         "!=" => Some(Token::NotEqual),
         "<=" => Some(Token::LessEqual),
         ">=" => Some(Token::GreaterEqual),
+        "->" => Some(Token::Arrow),
         _ => None,
     }
 }

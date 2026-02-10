@@ -70,9 +70,41 @@ pub enum Statement {
         body: Vec<Statement>
     },
 
+    /// A when statement (switch/match): `when value { is 1: { ... } is 2: { ... } else { ... } }`
+    When {
+        value: Expression,
+        cases: Vec<WhenCase>,
+        else_block: Option<Vec<Statement>>
+    },
+
     /// A next statement (continue): `next;`
     Next,
 
     /// A stop statement (break): `stop;`
     Stop,
+
+    /// A fallthrough statement: `fallthrough;`
+    Fallthrough,
+}
+
+/// Represents a single case in a when statement
+#[derive(Debug, Clone)]
+pub struct WhenCase {
+    /// The pattern to match, can be a single value or a range
+    pub pattern: WhenPattern,
+    /// The statements to execute if the pattern matches
+    pub body: Vec<Statement>,
+}
+
+/// Represents a pattern in a when case
+#[derive(Debug, Clone)]
+pub enum WhenPattern {
+    /// Single value pattern
+    Single(Expression),
+    /// Range pattern
+    Range {
+        start: Expression,
+        end: Expression,
+        inclusive: bool,
+    },
 }

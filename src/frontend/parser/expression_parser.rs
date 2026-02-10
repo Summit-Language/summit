@@ -37,11 +37,11 @@ impl<'a> ExpressionParser<'a> {
     /// # Returns
     /// An `Expression` or an error message.
     fn parse_ternary(&mut self) -> Result<Expression, String> {
-        let mut expr = self.parse_if_expr()?;
+        let mut expr = self.parse_when_expr()?;
 
         if self.parser.current() == &Token::Question {
             self.parser.advance();
-            let then_expr = Box::new(self.parse_if_expr()?);
+            let then_expr = Box::new(self.parse_when_expr()?);
             self.parser.expect(Token::Colon)?;
             let else_expr = Box::new(self.parse_ternary()?);
 
@@ -53,6 +53,83 @@ impl<'a> ExpressionParser<'a> {
         }
 
         Ok(expr)
+    }
+
+    /// Parses when expressions.
+    ///
+    /// Format: `when value { is pattern -> expr, ... else -> expr }`
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// An `Expression` or an error message.
+    fn parse_when_expr(&mut self) -> Result<Expression, String> {
+        if self.parser.current() == &Token::When {
+            self.parser.advance();
+
+            let value = Box::new(self.parse_or()?);
+
+            self.parser.expect(Token::LeftBrace)?;
+
+            let mut cases = Vec::new();
+
+            while self.parser.current() == &Token::Is {
+                self.parser.advance();
+
+                let pattern = self.parse_when_pattern()?;
+
+                self.parser.expect(Token::Arrow)?;
+
+                let result = self.parse_or()?;
+
+                cases.push(WhenExprCase { pattern, result });
+
+                // Optional comma or semicolon separator
+                if self.parser.current() == &Token::Comma || self.parser.current() == &Token::Semicolon {
+                    self.parser.advance();
+                }
+            }
+
+            self.parser.expect(Token::Else)?;
+            self.parser.expect(Token::Arrow)?;
+
+            let else_expr = Box::new(self.parse_or()?);
+
+            // Optional semicolon after else expression
+            if self.parser.current() == &Token::Semicolon {
+                self.parser.advance();
+            }
+
+            self.parser.expect(Token::RightBrace)?;
+
+            if cases.is_empty() {
+                return Err("When expression must have at least one case".to_string());
+            }
+
+            Ok(Expression::WhenExpr { value, cases, else_expr })
+        } else {
+            self.parse_if_expr()
+        }
+    }
+
+    /// Parses a when pattern (single value or range).
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `WhenPattern` or an error message.
+    fn parse_when_pattern(&mut self) -> Result<WhenPattern, String> {
+        let start = self.parse_or()?;
+
+        if self.parser.current() == &Token::Through {
+            self.parser.advance();
+            let end = self.parse_or()?;
+            Ok(WhenPattern::Range { start, end, inclusive: true })
+        } else {
+            Ok(WhenPattern::Single(start))
+        }
     }
 
     /// Parses if expressions.
@@ -74,7 +151,7 @@ impl<'a> ExpressionParser<'a> {
 
             let mut then_stmts = Vec::new();
             while self.parser.current() != &Token::RightBrace {
-                let mut stmt_parser = 
+                let mut stmt_parser =
                     super::statement_parser::StatementParser::new(self.parser);
                 then_stmts.push(stmt_parser.parse_stmt()?);
             }

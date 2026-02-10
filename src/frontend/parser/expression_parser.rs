@@ -85,7 +85,6 @@ impl<'a> ExpressionParser<'a> {
 
                 cases.push(WhenExprCase { pattern, result });
 
-                // Optional comma or semicolon separator
                 if self.parser.current() == &Token::Comma || self.parser.current() == &Token::Semicolon {
                     self.parser.advance();
                 }
@@ -96,7 +95,6 @@ impl<'a> ExpressionParser<'a> {
 
             let else_expr = Box::new(self.parse_or()?);
 
-            // Optional semicolon after else expression
             if self.parser.current() == &Token::Semicolon {
                 self.parser.advance();
             }
@@ -113,7 +111,7 @@ impl<'a> ExpressionParser<'a> {
         }
     }
 
-    /// Parses a when pattern (single value or range).
+    /// Parses a when pattern.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -134,7 +132,7 @@ impl<'a> ExpressionParser<'a> {
 
     /// Parses if expressions.
     ///
-    /// Format: `if condition { ... } else { ... }`
+    /// Format: `if condition { ... } else { ... }` or `if condition -> expr else expr`
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -147,52 +145,62 @@ impl<'a> ExpressionParser<'a> {
 
             let condition = Box::new(self.parse_or()?);
 
-            self.parser.expect(Token::LeftBrace)?;
+            if self.parser.current() == &Token::Arrow {
+                self.parser.advance();
+                let then_expr = Box::new(self.parse_or()?);
 
-            let mut then_stmts = Vec::new();
-            while self.parser.current() != &Token::RightBrace {
-                let mut stmt_parser =
-                    super::statement_parser::StatementParser::new(self.parser);
-                then_stmts.push(stmt_parser.parse_stmt()?);
-            }
-            self.parser.expect(Token::RightBrace)?;
+                self.parser.expect(Token::Else)?;
+                let else_expr = Box::new(self.parse_if_expr()?);
 
-            let then_expr = if then_stmts.is_empty() {
-                return Err("If expression must have at least one statement in then block"
-                    .to_string());
+                Ok(Expression::IfExpr { condition, then_expr, else_expr })
             } else {
-                match then_stmts.pop().unwrap() {
-                    Statement::Expression(e) => Box::new(e),
-                    Statement::Return(e) => Box::new(e),
-                    _ => return Err("If expression's then block must end with an expression"
-                        .to_string()),
+                self.parser.expect(Token::LeftBrace)?;
+
+                let mut then_stmts = Vec::new();
+                while self.parser.current() != &Token::RightBrace {
+                    let mut stmt_parser =
+                        super::statement_parser::StatementParser::new(self.parser);
+                    then_stmts.push(stmt_parser.parse_stmt()?);
                 }
-            };
+                self.parser.expect(Token::RightBrace)?;
 
-            self.parser.expect(Token::Else)?;
-            self.parser.expect(Token::LeftBrace)?;
+                let then_expr = if then_stmts.is_empty() {
+                    return Err("If expression must have at least one statement in then block"
+                        .to_string());
+                } else {
+                    match then_stmts.pop().unwrap() {
+                        Statement::Expression(e) => Box::new(e),
+                        Statement::Return(e) => Box::new(e),
+                        _ => return Err("If expression's then block must end with an expression"
+                            .to_string()),
+                    }
+                };
 
-            let mut else_stmts = Vec::new();
-            while self.parser.current() != &Token::RightBrace {
-                let mut stmt_parser =
-                    super::statement_parser::StatementParser::new(self.parser);
-                else_stmts.push(stmt_parser.parse_stmt()?);
+                self.parser.expect(Token::Else)?;
+                self.parser.expect(Token::LeftBrace)?;
+
+                let mut else_stmts = Vec::new();
+                while self.parser.current() != &Token::RightBrace {
+                    let mut stmt_parser =
+                        super::statement_parser::StatementParser::new(self.parser);
+                    else_stmts.push(stmt_parser.parse_stmt()?);
+                }
+                self.parser.expect(Token::RightBrace)?;
+
+                let else_expr = if else_stmts.is_empty() {
+                    return Err("If expression must have at least one statement in else block"
+                        .to_string());
+                } else {
+                    match else_stmts.pop().unwrap() {
+                        Statement::Expression(e) => Box::new(e),
+                        Statement::Return(e) => Box::new(e),
+                        _ => return Err("If expression's else block must end with an expression"
+                            .to_string()),
+                    }
+                };
+
+                Ok(Expression::IfExpr { condition, then_expr, else_expr })
             }
-            self.parser.expect(Token::RightBrace)?;
-
-            let else_expr = if else_stmts.is_empty() {
-                return Err("If expression must have at least one statement in else block"
-                    .to_string());
-            } else {
-                match else_stmts.pop().unwrap() {
-                    Statement::Expression(e) => Box::new(e),
-                    Statement::Return(e) => Box::new(e),
-                    _ => return Err("If expression's else block must end with an expression"
-                        .to_string()),
-                }
-            };
-
-            Ok(Expression::IfExpr { condition, then_expr, else_expr })
         } else {
             self.parse_or()
         }

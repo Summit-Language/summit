@@ -84,6 +84,23 @@ impl<'a> StdlibCollector<'a> {
                     }
                 }
             }
+            Statement::Expect { condition, pattern, else_block } => {
+                self.collect_from_expr(condition);
+                if let Some(p) = pattern {
+                    match p {
+                        ExpectPattern::Single(expr) => {
+                            self.collect_from_expr(expr);
+                        }
+                        ExpectPattern::Range { start, end, .. } => {
+                            self.collect_from_expr(start);
+                            self.collect_from_expr(end);
+                        }
+                    }
+                }
+                for s in else_block {
+                    self.collect_from_stmt(s);
+                }
+            }
             Statement::For { start, end, step,
                 filter, body, .. } => {
                 self.collect_from_expr(start);

@@ -153,6 +153,7 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "else" => Token::Else,
         "while" => Token::While,
         "when" => Token::When,
+        "expect" => Token::Expect,
         "is" => Token::Is,
         "fallthrough" => Token::Fallthrough,
         "next" => Token::Next,

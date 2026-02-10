@@ -77,6 +77,13 @@ pub enum Statement {
         else_block: Option<Vec<Statement>>
     },
 
+    /// An expect statement: `expect condition { else -> ... }` or `expect value is pattern { else -> ... }`
+    Expect {
+        condition: Expression,
+        pattern: Option<ExpectPattern>,
+        else_block: Vec<Statement>
+    },
+
     /// A next statement (continue): `next;`
     Next,
 
@@ -99,6 +106,19 @@ pub struct WhenCase {
 /// Represents a pattern in a when case
 #[derive(Debug, Clone)]
 pub enum WhenPattern {
+    /// Single value pattern
+    Single(Expression),
+    /// Range pattern
+    Range {
+        start: Expression,
+        end: Expression,
+        inclusive: bool,
+    },
+}
+
+/// Represents a pattern in an expect statement
+#[derive(Debug, Clone)]
+pub enum ExpectPattern {
     /// Single value pattern
     Single(Expression),
     /// Range pattern

@@ -29,6 +29,9 @@ impl<'a> StatementGenerator<'a> {
             Statement::When { value, cases, else_block } => {
                 self.emit_when_stmt(value, cases, else_block);
             }
+            Statement::Expect { condition, pattern, else_block } => {
+                self.emit_expect_stmt(condition, pattern, else_block);
+            }
             Statement::For { variable, start, end, inclusive,
                 step, filter, body } => {
                 self.emit_for_loop(variable, start, end, *inclusive, step, filter, body);
@@ -68,6 +71,69 @@ impl<'a> StatementGenerator<'a> {
                 self.emit_fallthrough_stmt();
             }
         }
+    }
+
+    /// Generates C code for an expect statement.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `condition`: The condition expression
+    /// - `pattern`: Optional pattern to match against
+    /// - `else_block`: Statements to execute if expectation fails
+    fn emit_expect_stmt(&mut self, condition: &Expression, pattern: &Option<ExpectPattern>,
+                        else_block: &[Statement]) {
+        self.generator.emitter.indent();
+
+        if let Some(p) = pattern {
+            match p {
+                ExpectPattern::Single(expr) => {
+                    self.generator.emitter.emit("if (!(");
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(condition);
+                    self.generator.emitter.emit(" == ");
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(expr);
+                    self.generator.emitter.emit(")) {\n");
+                }
+                ExpectPattern::Range { start, end, inclusive } => {
+                    self.generator.emitter.emit("if (!(");
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(condition);
+                    self.generator.emitter.emit(" >= ");
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(start);
+
+                    self.generator.emitter.emit(" && ");
+
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(condition);
+
+                    if *inclusive {
+                        self.generator.emitter.emit(" <= ");
+                    } else {
+                        self.generator.emitter.emit(" < ");
+                    }
+
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(end);
+                    self.generator.emitter.emit(")) {\n");
+                }
+            }
+        } else {
+            self.generator.emitter.emit("if (!(");
+            let mut expr_gen = ExpressionGenerator::new(self.generator);
+            expr_gen.generate_expr(condition);
+            self.generator.emitter.emit(")) {\n");
+        }
+
+        self.generator.emitter.indent_level += 1;
+
+        for stmt in else_block {
+            self.generate_stmt(stmt);
+        }
+
+        self.generator.emitter.indent_level -= 1;
+        self.generator.emitter.emit_line("}");
     }
 
     /// Generates C code for a when statement.

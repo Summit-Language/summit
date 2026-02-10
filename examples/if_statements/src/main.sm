@@ -7,5 +7,16 @@ func main(): i8 {
     } else {
         io::println("The flag is false");
     }
+
+
+    const x: i8 = if flag == true {
+        5;
+    } else {
+        6;
+    };
+    io::println(x);
+
+    const y: i8 = if flag == true -> 5 else 6;
+    io::println(y);
     ret 0;
 }

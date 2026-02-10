@@ -19,6 +19,7 @@ pub enum Token {
     Next,
     Stop,
     When,
+    Expect,
     Is,
     Fallthrough,
     In,

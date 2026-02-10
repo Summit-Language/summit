@@ -33,6 +33,7 @@ impl<'a> StatementParser<'a> {
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
             Token::When => self.parse_when(),
+            Token::Expect => self.parse_expect(),
             Token::For => self.parse_for(),
             Token::Next => self.parse_next(),
             Token::Stop => self.parse_stop(),
@@ -54,6 +55,81 @@ impl<'a> StatementParser<'a> {
                 Ok(Statement::Expression(expr))
             }
         }
+    }
+
+    /// Parses an expect statement.
+    ///
+    /// Format: `expect condition { else -> ... }` or `expect value is pattern { else -> ... }`
+    /// or `expect condition { else { ... } }`
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `Statement::Expect` or an error message.
+    fn parse_expect(&mut self) -> Result<Statement, String> {
+        self.parser.expect(Token::Expect)?;
+
+        let mut expr_parser = ExpressionParser::new(self.parser);
+        let condition = expr_parser.parse_or()?;
+
+        let pattern = if self.parser.current() == &Token::Is {
+            self.parser.advance();
+
+            let mut expr_parser = ExpressionParser::new(self.parser);
+            let start_expr = expr_parser.parse_or()?;
+
+            if self.parser.current() == &Token::Through {
+                self.parser.advance();
+                let mut expr_parser = ExpressionParser::new(self.parser);
+                let end_expr = expr_parser.parse_or()?;
+                Some(ExpectPattern::Range {
+                    start: start_expr,
+                    end: end_expr,
+                    inclusive: true,
+                })
+            } else if self.parser.current() == &Token::To {
+                self.parser.advance();
+                let mut expr_parser = ExpressionParser::new(self.parser);
+                let end_expr = expr_parser.parse_or()?;
+                Some(ExpectPattern::Range {
+                    start: start_expr,
+                    end: end_expr,
+                    inclusive: false,
+                })
+            } else {
+                Some(ExpectPattern::Single(start_expr))
+            }
+        } else {
+            None
+        };
+
+        self.parser.expect(Token::LeftBrace)?;
+        self.parser.expect(Token::Else)?;
+
+        let else_block = if self.parser.current() == &Token::Arrow {
+            self.parser.advance();
+            let stmt = self.parse_stmt()?;
+            vec![stmt]
+        } else if self.parser.current() == &Token::LeftBrace {
+            self.parser.advance();
+            let mut else_stmts = Vec::new();
+            while self.parser.current() != &Token::RightBrace {
+                else_stmts.push(self.parse_stmt()?);
+            }
+            self.parser.expect(Token::RightBrace)?;
+            else_stmts
+        } else {
+            return Err("Expected '->' or '{' after 'else' in expect statement".to_string());
+        };
+
+        self.parser.expect(Token::RightBrace)?;
+
+        Ok(Statement::Expect {
+            condition,
+            pattern,
+            else_block,
+        })
     }
 
     /// Parses a next statement (continue).

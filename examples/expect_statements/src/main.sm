@@ -1,0 +1,16 @@
+import std::io;
+
+func main(): i8 {
+    io::print("Enter your age: ");
+    const age: u8 = io::read<u8>();
+
+    expect age is 0 through 120 {
+        else {
+            io::println("Unlikely age detected!");
+            ret 1;
+        }
+    }
+
+    io::println("You are {} years old!", age);
+    ret 0;
+}

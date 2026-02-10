@@ -39,10 +39,11 @@ pub enum Statement {
     /// An expression statement: `expression;`
     Expression(Expression),
 
-    /// An if statement: `if condition { ... } else { ... }`
+    /// An if statement: `if condition { ... } elseif condition { ... } else { ... }`
     If {
         condition: Expression,
         then_block: Vec<Statement>,
+        elseif_blocks: Vec<ElseIfBlock>,
         else_block: Option<Vec<Statement>>
     },
 
@@ -92,6 +93,15 @@ pub enum Statement {
 
     /// A fallthrough statement: `fallthrough;`
     Fallthrough,
+}
+
+/// Represents an elseif block in an if statement
+#[derive(Debug, Clone)]
+pub struct ElseIfBlock {
+    /// The condition to test
+    pub condition: Expression,
+    /// The statements to execute if the condition is true
+    pub body: Vec<Statement>,
 }
 
 /// Represents a single case in a when statement

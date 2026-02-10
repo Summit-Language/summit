@@ -13,6 +13,7 @@ pub enum Token {
     Const,
     Comptime,
     If,
+    ElseIf,
     Else,
     While,
     For,

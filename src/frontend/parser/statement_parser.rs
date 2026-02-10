@@ -552,6 +552,25 @@ impl<'a> StatementParser<'a> {
         }
         self.parser.expect(Token::RightBrace)?;
 
+        let mut elseif_blocks = Vec::new();
+        while self.parser.current() == &Token::ElseIf {
+            self.parser.advance();
+            let mut expr_parser = ExpressionParser::new(self.parser);
+            let elseif_condition = expr_parser.parse_expr()?;
+            self.parser.expect(Token::LeftBrace)?;
+
+            let mut elseif_body = Vec::new();
+            while self.parser.current() != &Token::RightBrace {
+                elseif_body.push(self.parse_stmt()?);
+            }
+            self.parser.expect(Token::RightBrace)?;
+
+            elseif_blocks.push(ElseIfBlock {
+                condition: elseif_condition,
+                body: elseif_body,
+            });
+        }
+
         let else_block = if self.parser.current() == &Token::Else {
             self.parser.advance();
             self.parser.expect(Token::LeftBrace)?;
@@ -565,7 +584,7 @@ impl<'a> StatementParser<'a> {
             None
         };
 
-        Ok(Statement::If { condition, then_block, else_block })
+        Ok(Statement::If { condition, then_block, elseif_blocks, else_block })
     }
 
     /// Parses a while statement.

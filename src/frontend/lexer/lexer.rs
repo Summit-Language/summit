@@ -150,6 +150,7 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "const" => Token::Const,
         "comptime" => Token::Comptime,
         "if" => Token::If,
+        "elseif" => Token::ElseIf,
         "else" => Token::Else,
         "while" => Token::While,
         "when" => Token::When,

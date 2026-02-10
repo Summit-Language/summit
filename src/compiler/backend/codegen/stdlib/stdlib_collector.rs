@@ -137,10 +137,16 @@ impl<'a> StdlibCollector<'a> {
                 self.collect_from_expr(expr);
             }
             Statement::If { condition, then_block,
-                else_block } => {
+                elseif_blocks, else_block } => {
                 self.collect_from_expr(condition);
                 for s in then_block {
                     self.collect_from_stmt(s);
+                }
+                for elseif_block in elseif_blocks {
+                    self.collect_from_expr(&elseif_block.condition);
+                    for s in &elseif_block.body {
+                        self.collect_from_stmt(s);
+                    }
                 }
                 if let Some(else_stmts) = else_block {
                     for s in else_stmts {

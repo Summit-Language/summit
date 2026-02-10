@@ -268,7 +268,7 @@ impl<'a> StatementAnalyzer<'a> {
                 ))
             }
             Statement::If { condition, then_block,
-                else_block } => {
+                elseif_blocks, else_block } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(condition, scope)?;
 
@@ -276,6 +276,15 @@ impl<'a> StatementAnalyzer<'a> {
                 for stmt in then_block {
                     self.analyze_stmt_with_return_type(stmt, &mut then_scope, func_name,
                                                        expected_return_type)?;
+                }
+
+                for elseif_block in elseif_blocks {
+                    expr_analyzer.analyze_expr(&elseif_block.condition, scope)?;
+                    let mut elseif_scope = scope.clone();
+                    for stmt in &elseif_block.body {
+                        self.analyze_stmt_with_return_type(stmt, &mut elseif_scope, func_name,
+                                                           expected_return_type)?;
+                    }
                 }
 
                 if let Some(else_stmts) = else_block {
@@ -620,13 +629,21 @@ impl<'a> StatementAnalyzer<'a> {
                 expr_analyzer.analyze_expr(expr, scope)
             }
             Statement::If { condition, then_block,
-                else_block } => {
+                elseif_blocks, else_block } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(condition, scope)?;
 
                 let mut then_scope = scope.clone();
                 for stmt in then_block {
                     self.analyze_stmt(stmt, &mut then_scope)?;
+                }
+
+                for elseif_block in elseif_blocks {
+                    expr_analyzer.analyze_expr(&elseif_block.condition, scope)?;
+                    let mut elseif_scope = scope.clone();
+                    for stmt in &elseif_block.body {
+                        self.analyze_stmt(stmt, &mut elseif_scope)?;
+                    }
                 }
 
                 if let Some(else_stmts) = else_block {

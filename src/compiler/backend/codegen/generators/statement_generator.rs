@@ -55,8 +55,8 @@ impl<'a> StatementGenerator<'a> {
                 self.emit_expr_stmt(expr);
             }
             Statement::If { condition, then_block,
-                else_block } => {
-                self.emit_if_stmt(condition, then_block, else_block);
+                elseif_blocks, else_block } => {
+                self.emit_if_stmt(condition, then_block, elseif_blocks, else_block);
             }
             Statement::While { condition, body } => {
                 self.emit_while_stmt(condition, body);
@@ -744,9 +744,10 @@ impl<'a> StatementGenerator<'a> {
     /// - `self`: Mutable reference to self
     /// - `condition`: The if condition
     /// - `then_block`: Statements in the then block
+    /// - `elseif_blocks`: Optional elseif blocks
     /// - `else_block`: Optional statements in the else block
     fn emit_if_stmt(&mut self, condition: &Expression, then_block: &[Statement],
-                    else_block: &Option<Vec<Statement>>) {
+                    elseif_blocks: &[ElseIfBlock], else_block: &Option<Vec<Statement>>) {
         self.generator.emitter.indent();
         self.generator.emitter.emit("if (");
 
@@ -760,6 +761,22 @@ impl<'a> StatementGenerator<'a> {
             self.generate_stmt(stmt);
         }
         self.generator.emitter.indent_level -= 1;
+
+        for elseif_block in elseif_blocks {
+            self.generator.emitter.emit_line("} else if (");
+
+            let mut expr_gen = ExpressionGenerator::new(self.generator);
+            expr_gen.generate_expr(&elseif_block.condition);
+
+            self.generator.emitter.emit(") {\n");
+            self.generator.emitter.indent_level += 1;
+
+            for stmt in &elseif_block.body {
+                self.generate_stmt(stmt);
+            }
+
+            self.generator.emitter.indent_level -= 1;
+        }
 
         if let Some(else_stmts) = else_block {
             self.generator.emitter.emit_line("} else {");

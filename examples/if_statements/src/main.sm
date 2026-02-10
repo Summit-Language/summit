@@ -1,9 +1,12 @@
 import std::io;
 
 func main(): i8 {
-    const flag: bool = true;
+    const flag: bool = false;
+    const otherflag: bool = true;
     if flag == true {
         io::println("The flag is true");
+    } elseif otherflag == true {
+        io::println("Yes");
     } else {
         io::println("The flag is false");
     }

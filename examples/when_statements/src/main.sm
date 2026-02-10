@@ -12,11 +12,11 @@ func main(): i8 {
     const y: i8 = 20;
 
     when y {
-        is 1 {
+        is 1 through 10 {
             io::println("It is 1 through 10");
             fallthrough;
         }
-        is 20 -> io::println("It is 20 through 30");
+        is 20 through 30 -> io::println("It is 20 through 30");
         else -> io::println("Nah");
     }
 

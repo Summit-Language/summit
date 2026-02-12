@@ -52,7 +52,7 @@ impl Compiler {
         analysis::analyze(&ast)
             .map_err(|e| format!("Semantic error: {}", e))?;
 
-        let c_code = backend::generate(&ast);
+        let c_code = backend::generate(&ast, self.config.link_libs.clone());
 
         fs::write(&self.config.c_output_file, c_code)
             .map_err(|e| format!("Error writing C file: {}", e))?;
@@ -77,24 +77,30 @@ impl Compiler {
         let output_file = self.config.output_file.as_ref()
             .ok_or("No output file specified")?;
 
+        let linking_summitstd = self.config.link_libs.contains(&"summitstd".to_string());
+        let linking_libc = self.config.link_libs.contains(&"c".to_string());
+
         let stdlib_path = get_stdlib_path();
 
-        let lib_path = std::path::Path::new(&stdlib_path).join("libsummit_std.so");
-        if !lib_path.exists() {
-            return Err(format!(
-                "Standard library not found at: {}\n\
+        if linking_summitstd {
+            let lib_path = std::path::Path::new(&stdlib_path).join("libsummit_std.so");
+            if !lib_path.exists() {
+                return Err(format!(
+                    "Standard library not found at: {}\n\
              Library file missing: {}\n\
              Please set SUMMIT_STDLIB_PATH environment variable correctly.",
-                stdlib_path, lib_path.display()
-            ));
+                    stdlib_path, lib_path.display()
+                ));
+            }
         }
 
         let include_path = std::path::Path::new(&stdlib_path).join("include");
+
         let header_path = include_path.join("freestanding.h");
         if !header_path.exists() {
             return Err(format!(
                 "Header file not found at: {}\n\
-             Please reinstall the standard library with 'make install'.",
+         Please reinstall the standard library with 'make install'.",
                 header_path.display()
             ));
         }
@@ -103,21 +109,40 @@ impl Compiler {
             self.config.c_output_file.to_str().unwrap(),
             "-I", include_path.to_str().unwrap(),
             "-std=c11",
-            "-ffreestanding",
             "-fno-builtin",
-            "-nostdlib",
-            "-nostartfiles",
-            "-nodefaultlibs",
-            "-fno-stack-protector",
-            "-mno-red-zone",
             "-o", output_file.to_str().unwrap(),
-            "-L", &stdlib_path,
-            "-lsummit_std",
         ];
 
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        gcc_args.extend(["-Wl,-rpath", &stdlib_path]);
-        gcc_args.extend(["-Wl,-L", &stdlib_path]);
+        if linking_summitstd {
+            gcc_args.extend(["-L", &stdlib_path]);
+        }
+
+        if !linking_libc {
+            gcc_args.extend([
+                "-ffreestanding",
+                "-fno-builtin",
+                "-nostdlib",
+                "-nostartfiles",
+                "-nodefaultlibs",
+                "-fno-stack-protector",
+                "-mno-red-zone",
+            ]);
+        }
+
+        for lib in &self.config.link_libs {
+            if lib == "summitstd" {
+                gcc_args.push("-lsummit_std");
+            } else {
+                gcc_args.push("-l");
+                gcc_args.push(lib);
+            }
+        }
+
+        if linking_summitstd {
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            gcc_args.extend(["-Wl,-rpath", &stdlib_path]);
+            gcc_args.extend(["-Wl,-L", &stdlib_path]);
+        }
 
         let status = Command::new("gcc")
             .args(&gcc_args)

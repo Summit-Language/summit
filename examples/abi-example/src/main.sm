@@ -1,0 +1,9 @@
+import std::io;
+
+extern "C" func printf(fmt: str, args...): i32;
+
+func main(): i8 {
+    printf("Hello, world!");
+    io::println("hello!");
+    ret 0;
+}

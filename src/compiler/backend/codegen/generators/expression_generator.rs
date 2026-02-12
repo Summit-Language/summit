@@ -44,7 +44,54 @@ impl<'a> ExpressionGenerator<'a> {
             Expression::WhenExpr { value, cases, else_expr } => {
                 self.emit_when_expr(value, cases, else_expr);
             }
+            Expression::StructInit { struct_name, fields } => {
+                self.emit_struct_init(struct_name, fields);
+            }
+            Expression::FieldAccess { object, field } => {
+                self.emit_field_access(object, field);
+            }
         }
+    }
+
+    /// Emits C code for struct initialization.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `struct_name`: Name of the struct being initialized
+    /// - `fields`: Field initializers
+    fn emit_struct_init(&mut self, struct_name: &str, fields: &[StructFieldInit]) {
+        // Emit struct initializer: (StructName){ .field = value, ... }
+        self.generator.emitter.emit("(");
+        self.generator.emitter.emit(struct_name);
+        self.generator.emitter.emit("){ ");
+
+        for (i, field_init) in fields.iter().enumerate() {
+            if i > 0 {
+                self.generator.emitter.emit(", ");
+            }
+
+            if let Some(field_name) = &field_init.name {
+                self.generator.emitter.emit(".");
+                self.generator.emitter.emit(field_name);
+                self.generator.emitter.emit(" = ");
+            }
+
+            self.generate_expr(&field_init.value);
+        }
+
+        self.generator.emitter.emit(" }");
+    }
+
+    /// Emits C code for field access.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `object`: The object whose field is being accessed
+    /// - `field`: The field name
+    fn emit_field_access(&mut self, object: &Expression, field: &str) {
+        self.generate_expr(object);
+        self.generator.emitter.emit(".");
+        self.generator.emitter.emit(field);
     }
 
     /// Emits C code for a when expression.
@@ -56,14 +103,11 @@ impl<'a> ExpressionGenerator<'a> {
     /// - `else_expr`: The default expression
     fn emit_when_expr(&mut self, value: &Expression, cases: &[WhenExprCase],
                       else_expr: &Expression) {
-        // Check if any case has a range pattern
         let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
 
         if has_ranges {
-            // Use nested ternary operators with range checks
             self.emit_when_expr_with_ranges(value, cases, else_expr);
         } else {
-            // Use simple nested ternary operators
             self.emit_when_expr_with_ternary(value, cases, else_expr);
         }
     }
@@ -253,7 +297,8 @@ impl<'a> ExpressionGenerator<'a> {
         }
 
         let type_inference = TypeInference::new(&self.generator.symbol_table,
-                                                &self.generator.function_signatures);
+                                                &self.generator.function_signatures,
+                                                &self.generator.struct_defs);
         let arg_types: Vec<String> = args.iter()
             .map(|arg| type_inference.infer_expression_type(arg))
             .collect();
@@ -362,7 +407,8 @@ impl<'a> ExpressionGenerator<'a> {
     /// - `arg`: The argument used to determine the type suffix
     fn add_io_type_suffix(&self, func_name: &mut String, arg: &Expression) {
         let type_inference = TypeInference::new(&self.generator.symbol_table,
-                                                &self.generator.function_signatures);
+                                                &self.generator.function_signatures,
+                                                &self.generator.struct_defs);
         let expr_type = type_inference.infer_expression_type(arg);
         drop(type_inference);
 

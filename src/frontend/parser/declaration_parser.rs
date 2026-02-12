@@ -3,6 +3,7 @@ use crate::frontend::ast::*;
 use super::parser::Parser;
 use super::expression_parser::ExpressionParser;
 use super::statement_parser::StatementParser;
+use super::struct_parser::StructParser;
 
 /// Parses declarations at the global/root level of a Summit program.
 pub struct DeclarationParser<'a> {
@@ -13,6 +14,39 @@ impl<'a> DeclarationParser<'a> {
     /// Creates a new DeclarationParser for the given Parser.
     pub fn new(parser: &'a mut Parser) -> Self {
         DeclarationParser { parser }
+    }
+
+    /// Parses a type, which can be either a built-in type or a struct identifier.
+    ///
+    /// # Returns
+    /// The type name as a String, or an error message.
+    fn parse_type(&mut self) -> Result<String, String> {
+        match self.parser.current() {
+            Token::Type(t) => {
+                let typ = t.clone();
+                self.parser.advance();
+                Ok(typ)
+            }
+            Token::Identifier(id) => {
+                // Allow struct names as types
+                let typ = id.clone();
+                self.parser.advance();
+                Ok(typ)
+            }
+            _ => Err("Expected type or struct name".to_string())
+        }
+    }
+
+    /// Parses a struct definition.
+    ///
+    /// Format: `struct Name { field: type }`
+    ///
+    /// # Returns
+    /// A `GlobalDeclaration::Struct` if successful, or an error message.
+    pub fn parse_struct(&mut self) -> Result<GlobalDeclaration, String> {
+        let mut struct_parser = StructParser::new(self.parser);
+        let struct_def = struct_parser.parse_struct()?;
+        Ok(GlobalDeclaration::Struct(struct_def))
     }
 
     /// Parses a global variable declaration.
@@ -37,13 +71,7 @@ impl<'a> DeclarationParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -78,13 +106,7 @@ impl<'a> DeclarationParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -119,13 +141,7 @@ impl<'a> DeclarationParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -175,7 +191,10 @@ impl<'a> DeclarationParser<'a> {
 
     /// Parses a function declaration.
     ///
-    /// Format: `func name(param: type): return_type { ... }`
+    /// Formats:
+    /// - `func name(param: type): return_type { ... }`
+    /// - `abi "C" func name(param: type): return_type;` (external declaration)
+    /// - `abi "C" func printf(fmt: str, args...);` (with varargs)
     ///
     /// # Parameters:
     /// - `self`: Mutable reference to self
@@ -183,6 +202,20 @@ impl<'a> DeclarationParser<'a> {
     /// # Returns
     /// A `Function` struct with the function details, or an error message.
     pub fn parse_func(&mut self) -> Result<Function, String> {
+        let abi = if matches!(self.parser.current(), Token::Extern) {
+            self.parser.advance();
+            
+            if let Token::StringLiteral(abi_name) = self.parser.current() {
+                let abi = abi_name.clone();
+                self.parser.advance();
+                Some(abi)
+            } else {
+                return Err("Expected ABI name as string literal (e.g., \"C\")".to_string());
+            }
+        } else {
+            None
+        };
+
         self.parser.expect(Token::Func)?;
 
         let name = if let Token::Identifier(n) = self.parser.current() {
@@ -196,33 +229,35 @@ impl<'a> DeclarationParser<'a> {
         self.parser.expect(Token::LeftParen)?;
 
         let mut params = Vec::new();
+        let mut has_varargs = false;
+
         if self.parser.current() != &Token::RightParen {
             loop {
-                let param_name = if let Token::Identifier(n)
-                    = self.parser.current() {
-                    let name = n.clone();
+                if let Token::Identifier(param_name) = self.parser.current() {
+                    let param_name_clone = param_name.clone();
                     self.parser.advance();
-                    name
+
+                    if matches!(self.parser.current(), Token::Ellipsis) {
+                        self.parser.advance();
+                        has_varargs = true;
+                        break;
+                    }
+
+                    self.parser.expect(Token::Colon)?;
+                    let param_type = self.parse_type()?;
+
+                    params.push(Parameter {
+                        name: param_name_clone,
+                        param_type
+                    });
+
+                    if self.parser.current() == &Token::Comma {
+                        self.parser.advance();
+                    } else {
+                        break;
+                    }
                 } else {
                     return Err("Expected parameter name".to_string());
-                };
-
-                self.parser.expect(Token::Colon)?;
-
-                let param_type = if let Token::Type(t) = self.parser.current() {
-                    let typ = t.clone();
-                    self.parser.advance();
-                    typ
-                } else {
-                    return Err("Expected parameter type".to_string());
-                };
-
-                params.push(Parameter { name: param_name, param_type });
-
-                if self.parser.current() == &Token::Comma {
-                    self.parser.advance();
-                } else {
-                    break;
                 }
             }
         }
@@ -230,24 +265,31 @@ impl<'a> DeclarationParser<'a> {
         self.parser.expect(Token::RightParen)?;
         self.parser.expect(Token::Colon)?;
 
-        let return_type = if let Token::Type(t) = self.parser.current() {
-            let typ = t.clone();
+        let return_type = self.parse_type()?;
+
+        let body = if self.parser.current() == &Token::Semicolon {
             self.parser.advance();
-            typ
+            Vec::new()
         } else {
-            return Err("Expected return type".to_string());
+            self.parser.expect(Token::LeftBrace)?;
+
+            let mut body = Vec::new();
+            while self.parser.current() != &Token::RightBrace {
+                let mut stmt_parser = StatementParser::new(self.parser);
+                body.push(stmt_parser.parse_stmt()?);
+            }
+
+            self.parser.expect(Token::RightBrace)?;
+            body
         };
 
-        self.parser.expect(Token::LeftBrace)?;
-
-        let mut body = Vec::new();
-        while self.parser.current() != &Token::RightBrace {
-            let mut stmt_parser = StatementParser::new(self.parser);
-            body.push(stmt_parser.parse_stmt()?);
-        }
-
-        self.parser.expect(Token::RightBrace)?;
-
-        Ok(Function { name, params, return_type, body })
+        Ok(Function {
+            name,
+            params,
+            has_varargs,
+            return_type,
+            abi,
+            body
+        })
     }
 }

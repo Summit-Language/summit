@@ -15,8 +15,14 @@ pub struct ProgramGenerator {
     /// Maps variable names to their types
     pub symbol_table: HashMap<String, String>,
 
+    /// Maps variable names to their mutability
+    pub mutability_table: HashMap<String, bool>,
+
     /// Maps function names to their return types
     pub function_signatures: HashMap<String, String>,
+
+    /// Maps struct names to their definitions
+    pub struct_defs: HashMap<String, StructDef>,
 
     /// Tracks which standard library functions are used
     pub used_stdlib_functions: HashSet<String>,
@@ -29,20 +35,31 @@ pub struct ProgramGenerator {
 
     /// Emits standard library function declarations
     stdlib_emitter: StdlibEmitter,
+
+    /// Libraries to link against
+    link_libs: Vec<String>,
 }
 
 impl ProgramGenerator {
     /// Creates a new ProgramGenerator instance.
-    pub fn new() -> Self {
+    pub fn new(link_libs: Vec<String>) -> Self {
         ProgramGenerator {
             emitter: CEmitter::new(),
             symbol_table: HashMap::new(),
+            mutability_table: HashMap::new(),
             function_signatures: HashMap::new(),
+            struct_defs: HashMap::new(),
             used_stdlib_functions: HashSet::new(),
             type_mapper: TypeMapper::new(),
             compile_time_checker: CompileTimeChecker::new(),
             stdlib_emitter: StdlibEmitter::new(),
+            link_libs,
         }
+    }
+
+    /// Checks if we're linking against libc
+    fn linking_libc(&self) -> bool {
+        self.link_libs.contains(&"c".to_string())
     }
 
     /// Generates C code for a complete Summit program.
@@ -54,13 +71,22 @@ impl ProgramGenerator {
     /// # Returns
     /// The generated C code as a string
     pub fn generate_program(&mut self, program: &Program) -> String {
+        let mut structs = Vec::new();
+        for global in &program.globals {
+            if let GlobalDeclaration::Struct(struct_def) = global {
+                self.struct_defs.insert(struct_def.name.clone(), struct_def.clone());
+                structs.push(struct_def.clone());
+            }
+        }
+
         for func in &program.functions {
             self.function_signatures.insert(func.name.clone(), func.return_type.clone());
         }
 
         let runtime_global_names = self.identify_runtime_globals(&program.globals);
 
-        let (comptime_globals, runtime_globals) = self.separate_globals(&program.globals, &runtime_global_names);
+        let (comptime_globals, runtime_globals)
+            = self.separate_globals(&program.globals, &runtime_global_names);
 
         self.collect_stdlib_usage(program);
         self.emit_headers();
@@ -68,6 +94,8 @@ impl ProgramGenerator {
         if !self.used_stdlib_functions.is_empty() {
             self.emit_stdlib_decls();
         }
+
+        self.emit_struct_defs(&structs);
 
         let mut global_gen = GlobalGenerator::new(self);
         global_gen.emit_comptime_globals(&comptime_globals);
@@ -77,18 +105,57 @@ impl ProgramGenerator {
             self.emitter.emit_line("");
         }
 
-        for func in &program.functions {
+        let (external_funcs, regular_funcs): (Vec<_>, Vec<_>) = program.functions
+            .iter()
+            .partition(|f| f.body.is_empty() && f.abi.is_some());
+
+        for func in &external_funcs {
+            let mut func_gen = FunctionGenerator::new(self);
+            func_gen.emit_external_func_decl(func);
+        }
+
+        if !external_funcs.is_empty() {
+            self.emitter.emit_line("");
+        }
+
+        for func in &regular_funcs {
             let mut func_gen = FunctionGenerator::new(self);
             func_gen.emit_func_decl(func);
         }
 
-        if !program.functions.is_empty() {
+        if !regular_funcs.is_empty() {
             self.emitter.emit_line("");
         }
 
-        self.generate_main_or_funcs(program, &runtime_globals);
+        self.generate_main_or_funcs(program, &runtime_globals, &regular_funcs);
 
         self.emitter.output.clone()
+    }
+
+    /// Emits C struct definitions.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `structs`: The struct definitions to emit
+    fn emit_struct_defs(&mut self, structs: &[StructDef]) {
+        if structs.is_empty() {
+            return;
+        }
+
+        for struct_def in structs {
+            self.emitter.emit(&format!("typedef struct {} {{\n", struct_def.name));
+            self.emitter.indent_level += 1;
+
+            for field in &struct_def.fields {
+                self.emitter.indent();
+                let c_type = self.map_type(&field.field_type);
+                self.emitter.emit(&format!("{} {};\n", c_type, field.name));
+            }
+
+            self.emitter.indent_level -= 1;
+            self.emitter.emit(&format!("}} {};\n", struct_def.name));
+            self.emitter.emit_line("");
+        }
     }
 
     /// Identifies which globals require runtime initialization.
@@ -105,7 +172,6 @@ impl ProgramGenerator {
         for global in globals {
             match global {
                 GlobalDeclaration::Var { name, .. } => {
-                    // Var globals are always runtime
                     runtime_global_names.insert(name.clone());
                 }
                 GlobalDeclaration::Const { name, value, .. } => {
@@ -115,6 +181,7 @@ impl ProgramGenerator {
                     }
                 }
                 GlobalDeclaration::Comptime { .. } => {}
+                GlobalDeclaration::Struct(_) => {}
             }
         }
 
@@ -147,7 +214,7 @@ impl ProgramGenerator {
                         self.infer_expr_type(value)
                     };
                     self.symbol_table.insert(name.clone(), inferred_type);
-                    // Var globals are always runtime
+                    self.mutability_table.insert(name.clone(), true);
                     runtime_globals.push(global);
                 }
                 GlobalDeclaration::Comptime { name, var_type, value } => {
@@ -157,6 +224,7 @@ impl ProgramGenerator {
                         self.infer_expr_type(value)
                     };
                     self.symbol_table.insert(name.clone(), inferred_type);
+                    self.mutability_table.insert(name.clone(), false);
                     comptime_globals.push(global);
                 }
                 GlobalDeclaration::Const { name, var_type, value } => {
@@ -166,6 +234,7 @@ impl ProgramGenerator {
                         self.infer_expr_type(value)
                     };
                     self.symbol_table.insert(name.clone(), inferred_type);
+                    self.mutability_table.insert(name.clone(), false);
 
                     if runtime_global_names.contains(name) {
                         runtime_globals.push(global);
@@ -173,6 +242,7 @@ impl ProgramGenerator {
                         comptime_globals.push(global);
                     }
                 }
+                GlobalDeclaration::Struct(_) => {}
             }
         }
 
@@ -188,6 +258,9 @@ impl ProgramGenerator {
         let mut collector = StdlibCollector::new(&mut self.used_stdlib_functions,
                                                  &mut self.symbol_table);
         for func in &program.functions {
+            if func.body.is_empty() {
+                continue;
+            }
             collector.collect_from_func(func);
         }
 
@@ -202,11 +275,12 @@ impl ProgramGenerator {
                 GlobalDeclaration::Comptime { value, .. } => {
                     collector.collect_from_expr(value);
                 }
+                GlobalDeclaration::Struct(_) => {}
             }
         }
     }
 
-    /// Emits C header includes (freestanding).
+    /// Emits C header includes.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -233,19 +307,20 @@ impl ProgramGenerator {
     /// - `self`: Mutable reference to self
     /// - `program`: The program to generate code for
     /// - `runtime_globals`: Globals requiring runtime initialization
+    /// - `regular_funcs`: Functions that are not external declarations
     fn generate_main_or_funcs(&mut self, program: &Program,
-                              runtime_globals: &[&GlobalDeclaration]) {
-        let has_main = program.functions.iter().any(|f| f.name == "main");
+                              runtime_globals: &[&GlobalDeclaration],
+                              regular_funcs: &[&Function]) {
+        let has_main = regular_funcs.iter().any(|f| f.name == "main");
 
         if !program.statements.is_empty() && !has_main {
             self.emit_synthetic_start(program, runtime_globals);
         } else {
-            // Initialize runtime globals at the start of main (or before main is called)
             if has_main && !runtime_globals.is_empty() {
                 self.emit_global_init_function(runtime_globals);
             }
 
-            for func in &program.functions {
+            for func in regular_funcs {
                 let mut func_gen = FunctionGenerator::new(self);
                 func_gen.generate_func(func);
                 self.emitter.emit_line("");
@@ -282,6 +357,15 @@ impl ProgramGenerator {
     /// - `self`: Mutable reference to self
     /// - `has_global_init`: Whether there are runtime globals to initialize
     fn emit_start_wrapper(&mut self, has_global_init: bool) {
+        if self.linking_libc() {
+            if has_global_init {
+                self.emitter.emit_line("// Global initializers will be called before main");
+                self.emitter.emit_line("// via constructor attribute or explicit call in main");
+                self.emitter.emit_line("");
+            }
+            return;
+        }
+
         self.emitter.emit_line("void _start(void) {");
         self.emitter.indent_level += 1;
 
@@ -289,8 +373,18 @@ impl ProgramGenerator {
             self.emitter.emit_line("__init_globals();");
         }
 
-        self.emitter.emit_line("int8_t exit_code = main();");
-        self.emitter.emit_line("syscall1(SYS_exit, exit_code);");
+        let main_return_type = self.function_signatures.get("main")
+            .map(|s| s.as_str())
+            .unwrap_or("void");
+
+        if main_return_type == "void" {
+            self.emitter.emit_line("main();");
+            self.emitter.emit_line("syscall1(SYS_exit, 0);");
+        } else {
+            self.emitter.emit_line("int8_t exit_code = main();");
+            self.emitter.emit_line("syscall1(SYS_exit, exit_code);");
+        }
+
         self.emitter.indent_level -= 1;
         self.emitter.emit_line("}");
         self.emitter.emit_line("");
@@ -303,6 +397,27 @@ impl ProgramGenerator {
     /// - `program`: The program containing top-level statements
     /// - `runtime_globals`: Globals requiring runtime initialization
     fn emit_synthetic_start(&mut self, program: &Program, runtime_globals: &[&GlobalDeclaration]) {
+        if self.linking_libc() {
+            self.emitter.emit_line("int main(void) {");
+            self.emitter.indent_level += 1;
+
+            let mut global_gen = GlobalGenerator::new(self);
+            for global in runtime_globals {
+                global_gen.emit_global_init(global);
+            }
+
+            let mut stmt_gen = StatementGenerator::new(self);
+            for stmt in &program.statements {
+                stmt_gen.generate_stmt(stmt);
+            }
+
+            self.emitter.emit_line("return 0;");
+            self.emitter.indent_level -= 1;
+            self.emitter.emit_line("}");
+            self.emitter.emit_line("");
+            return;
+        }
+
         self.emitter.emit_line("void _start(void) {");
         self.emitter.indent_level += 1;
 
@@ -316,7 +431,6 @@ impl ProgramGenerator {
             stmt_gen.generate_stmt(stmt);
         }
 
-        // Exit with code 0
         self.emitter.emit_line("syscall1(SYS_exit, 0);");
 
         self.emitter.indent_level -= 1;
@@ -334,7 +448,8 @@ impl ProgramGenerator {
     /// The inferred type as a string
     pub fn infer_expr_type(&self, expr: &Expression) -> String {
         let type_inference = TypeInference::new(&self.symbol_table,
-                                                &self.function_signatures);
+                                                &self.function_signatures,
+                                                &self.struct_defs);
         type_inference.infer_expression_type(expr)
     }
 
@@ -345,8 +460,11 @@ impl ProgramGenerator {
     /// - `type_name`: The Summit type name
     ///
     /// # Returns
-    /// The equivalent C type as a string slice
-    pub fn map_type(&self, type_name: &str) -> &str {
-        self.type_mapper.map_type(type_name)
+    /// The equivalent C type as a string
+    pub fn map_type(&self, type_name: &str) -> String {
+        if self.struct_defs.contains_key(type_name) {
+            return type_name.to_string();
+        }
+        self.type_mapper.map_type(type_name).to_string()
     }
 }

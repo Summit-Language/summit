@@ -9,6 +9,7 @@ use std::env;
 use std::process::exit;
 
 use commands::{new_project, run_project, build_project, clean_project};
+use utils::args::extract_link_libs;
 
 /// The main entry point for the Summit compiler.
 ///
@@ -38,13 +39,22 @@ fn main() {
             }
         }
         "run" => {
-            let file = if args.len() > 2 {
-                Some(args[2].as_str())
+            let run_args = if args.len() > 2 {
+                &args[2..]
+            } else {
+                &[]
+            };
+
+            // Extract library flags and remaining arguments
+            let (link_libs, remaining_args) = extract_link_libs(run_args);
+
+            let file = if !remaining_args.is_empty() {
+                Some(remaining_args[0].as_str())
             } else {
                 None
             };
 
-            if let Err(e) = run_project(file) {
+            if let Err(e) = run_project(file, &link_libs) {
                 eprintln!("Error: {}", e);
                 exit(1);
             }
@@ -56,7 +66,10 @@ fn main() {
                 &[]
             };
 
-            if let Err(e) = build_project(build_args) {
+            // Extract library flags and remaining arguments
+            let (link_libs, remaining_args) = extract_link_libs(build_args);
+
+            if let Err(e) = build_project(&remaining_args, &link_libs) {
                 eprintln!("Error: {}", e);
                 exit(1);
             }
@@ -80,8 +93,17 @@ fn print_usage() {
     eprintln!("Summit Language Compiler");
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  summit new [project_name]    Create a new Summit project");
-    eprintln!("  summit run [file]            Compile and run a Summit file (default: uses Summit.toml)");
-    eprintln!("  summit build [file]          Compile a Summit file (default: uses Summit.toml)");
-    eprintln!("  summit clean                 Remove the built binaries");
+    eprintln!("  summit new [project_name]           Create a new Summit project");
+    eprintln!("  summit run [file] [-l lib ...]      Compile and run a Summit file (default: uses Summit.toml)");
+    eprintln!("  summit build [file] [-l lib ...]    Compile a Summit file (default: uses Summit.toml)");
+    eprintln!("  summit clean                        Remove the built binaries");
+    eprintln!();
+    eprintln!("Examples:");
+    eprintln!("  summit new my_project               Create a new project called 'my_project'");
+    eprintln!("  summit build                        Build using Summit.toml configuration");
+    eprintln!("  summit build main.sm                Build a single file");
+    eprintln!("  summit build -lm -lpthread          Build with math and pthread libraries");
+    eprintln!("  summit build main.sm -lm            Build a file with the math library");
+    eprintln!("  summit run                          Build and run using Summit.toml");
+    eprintln!("  summit run main.sm -lSDL2           Build and run a file with SDL2");
 }

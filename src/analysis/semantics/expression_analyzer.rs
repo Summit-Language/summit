@@ -99,9 +99,11 @@ impl<'a> ExpressionAnalyzer<'a> {
                 self.analyze_expr(right, scope)?;
 
                 let left_type = self.analyzer.type_checker.infer_type(left, scope,
-                                                                      &self.analyzer.functions)?;
+                                                                      &self.analyzer.functions,
+                                                                      &self.analyzer.structs)?;
                 let right_type = self.analyzer.type_checker.infer_type(right, scope,
-                                                                       &self.analyzer.functions)?;
+                                                                       &self.analyzer.functions,
+                                                                       &self.analyzer.structs)?;
 
                 if !self.analyzer.type_checker.types_compatible(&left_type, &right_type) {
                     return Err(format!("Type mismatch in binary operation: {} and {}",
@@ -121,9 +123,11 @@ impl<'a> ExpressionAnalyzer<'a> {
                 self.analyze_expr(else_expr, scope)?;
 
                 let then_type = self.analyzer.type_checker.infer_type(then_expr, scope,
-                                                                      &self.analyzer.functions)?;
+                                                                      &self.analyzer.functions,
+                                                                      &self.analyzer.structs)?;
                 let else_type = self.analyzer.type_checker.infer_type(else_expr, scope,
-                                                                      &self.analyzer.functions)?;
+                                                                      &self.analyzer.functions,
+                                                                      &self.analyzer.structs)?;
 
                 if !self.analyzer.type_checker.types_compatible(&then_type, &else_type) {
                     return Err(format!(
@@ -138,7 +142,8 @@ impl<'a> ExpressionAnalyzer<'a> {
                 self.analyze_expr(value, scope)?;
 
                 let value_type = self.analyzer.type_checker.infer_type(value, scope,
-                                                                       &self.analyzer.functions)?;
+                                                                       &self.analyzer.functions,
+                                                                       &self.analyzer.structs)?;
 
                 let mut result_types = Vec::new();
 
@@ -148,7 +153,7 @@ impl<'a> ExpressionAnalyzer<'a> {
                             self.analyze_expr(pattern_expr, scope)?;
 
                             let pattern_type = self.analyzer.type_checker.infer_type(
-                                pattern_expr, scope, &self.analyzer.functions)?;
+                                pattern_expr, scope, &self.analyzer.functions, &self.analyzer.structs)?;
 
                             if !self.analyzer.type_checker.types_compatible(&value_type, &pattern_type) {
                                 return Err(format!(
@@ -162,9 +167,9 @@ impl<'a> ExpressionAnalyzer<'a> {
                             self.analyze_expr(end, scope)?;
 
                             let start_type = self.analyzer.type_checker.infer_type(
-                                start, scope, &self.analyzer.functions)?;
+                                start, scope, &self.analyzer.functions, &self.analyzer.structs)?;
                             let end_type = self.analyzer.type_checker.infer_type(
-                                end, scope, &self.analyzer.functions)?;
+                                end, scope, &self.analyzer.functions, &self.analyzer.structs)?;
 
                             if !self.analyzer.type_checker.types_compatible(&value_type, &start_type) {
                                 return Err(format!(
@@ -185,13 +190,13 @@ impl<'a> ExpressionAnalyzer<'a> {
                     self.analyze_expr(&case.result, scope)?;
 
                     let result_type = self.analyzer.type_checker.infer_type(
-                        &case.result, scope, &self.analyzer.functions)?;
+                        &case.result, scope, &self.analyzer.functions, &self.analyzer.structs)?;
                     result_types.push(result_type);
                 }
 
                 self.analyze_expr(else_expr, scope)?;
                 let else_type = self.analyzer.type_checker.infer_type(
-                    else_expr, scope, &self.analyzer.functions)?;
+                    else_expr, scope, &self.analyzer.functions, &self.analyzer.structs)?;
                 result_types.push(else_type);
 
                 for i in 1..result_types.len() {
@@ -201,6 +206,121 @@ impl<'a> ExpressionAnalyzer<'a> {
                             result_types[0], result_types[i]
                         ));
                     }
+                }
+
+                Ok(())
+            }
+            Expression::StructInit { struct_name, fields } => {
+                // Verify the struct exists
+                if !self.analyzer.structs.contains_key(struct_name) {
+                    return Err(format!("Undefined struct: {}", struct_name));
+                }
+
+                let struct_def = &self.analyzer.structs[struct_name];
+
+                // Check field initialization
+                if fields.is_empty() {
+                    return Err(format!("Struct '{}' must be initialized with fields", struct_name));
+                }
+
+                // Check if using positional or named initialization
+                let has_named = fields.iter().any(|f| f.name.is_some());
+                let has_positional = fields.iter().any(|f| f.name.is_none());
+
+                if has_named && has_positional {
+                    return Err(format!("Struct '{}' cannot mix named and positional field initialization", struct_name));
+                }
+
+                if has_positional {
+                    // Positional initialization - must match field count and order
+                    if fields.len() != struct_def.fields.len() {
+                        return Err(format!(
+                            "Struct '{}' expects {} fields, but {} were provided",
+                            struct_name, struct_def.fields.len(), fields.len()
+                        ));
+                    }
+
+                    for (i, (field_init, struct_field)) in fields.iter().zip(struct_def.fields.iter()).enumerate() {
+                        self.analyze_expr(&field_init.value, scope)?;
+                        let value_type = self.analyzer.type_checker.infer_type(
+                            &field_init.value, scope, &self.analyzer.functions, &self.analyzer.structs)?;
+
+                        if !self.analyzer.type_checker.types_compatible(&struct_field.field_type, &value_type) {
+                            return Err(format!(
+                                "Type mismatch in field {} of struct '{}': expected '{}', got '{}'",
+                                i + 1, struct_name, struct_field.field_type, value_type
+                            ));
+                        }
+                    }
+                } else {
+                    // Named initialization - check all fields are present and types match
+                    let mut initialized_fields = HashMap::new();
+
+                    for field_init in fields {
+                        if let Some(field_name) = &field_init.name {
+                            // Check for duplicate field initialization
+                            if initialized_fields.contains_key(field_name) {
+                                return Err(format!(
+                                    "Field '{}' is initialized multiple times in struct '{}'",
+                                    field_name, struct_name
+                                ));
+                            }
+
+                            // Find the field in the struct definition
+                            let struct_field = struct_def.fields.iter()
+                                .find(|f| &f.name == field_name)
+                                .ok_or_else(|| format!(
+                                    "Field '{}' not found in struct '{}'",
+                                    field_name, struct_name
+                                ))?;
+
+                            self.analyze_expr(&field_init.value, scope)?;
+                            let value_type = self.analyzer.type_checker.infer_type(
+                                &field_init.value, scope, &self.analyzer.functions, &self.analyzer.structs)?;
+
+                            if !self.analyzer.type_checker.types_compatible(&struct_field.field_type, &value_type) {
+                                return Err(format!(
+                                    "Type mismatch in field '{}' of struct '{}': expected '{}', got '{}'",
+                                    field_name, struct_name, struct_field.field_type, value_type
+                                ));
+                            }
+
+                            initialized_fields.insert(field_name.clone(), ());
+                        }
+                    }
+
+                    // Check that all fields are initialized
+                    for struct_field in &struct_def.fields {
+                        if !initialized_fields.contains_key(&struct_field.name) {
+                            return Err(format!(
+                                "Field '{}' is not initialized in struct '{}'",
+                                struct_field.name, struct_name
+                            ));
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            Expression::FieldAccess { object, field } => {
+                // Analyze the object expression
+                self.analyze_expr(object, scope)?;
+
+                // Get the object's type
+                let object_type = self.analyzer.type_checker.infer_type(
+                    object, scope, &self.analyzer.functions, &self.analyzer.structs)?;
+
+                // Verify it's a struct type
+                if !self.analyzer.structs.contains_key(&object_type) {
+                    return Err(format!("Cannot access field '{}' on non-struct type '{}'", field, object_type));
+                }
+
+                // Verify the field exists
+                let struct_def = &self.analyzer.structs[&object_type];
+                let field_exists = struct_def.fields.iter().any(|f| &f.name == field);
+
+                if !field_exists {
+                    return Err(format!("Field '{}' not found in struct '{}'", field, object_type));
                 }
 
                 Ok(())
@@ -227,17 +347,34 @@ impl<'a> ExpressionAnalyzer<'a> {
         }
 
         if let Some(params) = self.analyzer.function_params.get(func_name) {
-            if args.len() != params.len() {
-                return Err(format!(
-                    "Function '{}' expects {} arguments, but {} were provided",
-                    func_name, params.len(), args.len()
-                ));
+            // Check if this is a variadic function
+            let func = &self.analyzer.functions[func_name];
+            let is_variadic = func.has_varargs;
+
+            if is_variadic {
+                // For variadic functions, we need at least the minimum number of parameters
+                if args.len() < params.len() {
+                    return Err(format!(
+                        "Function '{}' expects at least {} arguments, but {} were provided",
+                        func_name, params.len(), args.len()
+                    ));
+                }
+            } else {
+                // For non-variadic functions, argument count must match exactly
+                if args.len() != params.len() {
+                    return Err(format!(
+                        "Function '{}' expects {} arguments, but {} were provided",
+                        func_name, params.len(), args.len()
+                    ));
+                }
             }
 
+            // Type check the fixed parameters (not the variadic ones)
             for (i, (arg, (param_name, param_type))) in args
                 .iter().zip(params.iter()).enumerate() {
                 let arg_type = self.analyzer.type_checker.infer_type(arg, scope,
-                                                                     &self.analyzer.functions)?;
+                                                                     &self.analyzer.functions,
+                                                                     &self.analyzer.structs)?;
                 if arg_type == *param_type {
                     continue;
                 }

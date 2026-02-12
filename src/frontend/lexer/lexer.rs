@@ -47,6 +47,15 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
             continue;
         }
 
+        // Check for three-character operators (...)
+        if i + 2 < chars.len() {
+            if let Some(token) = tokenize_three_char_operator(&chars, i) {
+                tokens.push(token);
+                i += 3;
+                continue;
+            }
+        }
+
         if i + 1 < chars.len() {
             if let Some(token) = tokenize_two_char_operator(&chars, i) {
                 tokens.push(token);
@@ -155,6 +164,7 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "while" => Token::While,
         "when" => Token::When,
         "expect" => Token::Expect,
+        "struct" => Token::Struct,
         "is" => Token::Is,
         "fallthrough" => Token::Fallthrough,
         "next" => Token::Next,
@@ -172,11 +182,29 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "true" => Token::True,
         "false" => Token::False,
         "bool" => Token::Type("bool".to_string()),
+        "extern" => Token::Extern,
         "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16"
         | "u32" | "u64" | "u128" | "void" | "str" => {
             Token::Type(word)
         }
         _ => Token::Identifier(word),
+    }
+}
+
+/// Tokenizes a three character operator from the source code.
+///
+/// # Parameters
+/// - `chars`: The source characters
+/// - `i`: Current position in the source
+///
+/// # Returns
+/// A token if it's a valid three-character operator, or `None`
+fn tokenize_three_char_operator(chars: &[char], i: usize) -> Option<Token> {
+    let three_char = format!("{}{}{}", chars[i], chars[i + 1], chars[i + 2]);
+
+    match three_char.as_str() {
+        "..." => Some(Token::Ellipsis),
+        _ => None,
     }
 }
 
@@ -229,6 +257,7 @@ fn tokenize_single_char(ch: &char) -> Result<Token, String> {
         '[' => Ok(Token::LeftBracket),
         ']' => Ok(Token::RightBracket),
         '?' => Ok(Token::Question),
+        '.' => Ok(Token::Dot),
         _ => Err(format!("Unexpected character: {}", ch)),
     }
 }

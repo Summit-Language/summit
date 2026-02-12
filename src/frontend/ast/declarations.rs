@@ -1,5 +1,6 @@
 use super::expressions::Expression;
 use super::statements::Statement;
+use super::structs::StructDef;
 
 /// A global declaration that appears at the top level of a program.
 #[derive(Debug, Clone)]
@@ -24,6 +25,9 @@ pub enum GlobalDeclaration {
         var_type: Option<String>,
         value: Expression
     },
+
+    /// A struct definition: `struct Name { field: type }`
+    Struct(StructDef),
 }
 
 /// An import statement that brings in other modules.
@@ -42,10 +46,17 @@ pub struct Function {
     /// The function's parameters
     pub params: Vec<Parameter>,
 
+    /// Whether this function has varargs
+    pub has_varargs: bool,
+
     /// The type the function returns
     pub return_type: String,
 
+    /// The ABI for this function
+    pub abi: Option<String>,
+
     /// The statements inside the function body
+    /// Empty if this is an external function declaration
     pub body: Vec<Statement>,
 }
 

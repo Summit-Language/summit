@@ -8,14 +8,15 @@ use std::fs;
 ///
 /// # Parameters
 /// - `args`: Optional command-line arguments. If empty and Summit.toml exists, uses config.
+/// - `link_libs`: Additional libraries to link (from -l flags)
 ///
 /// # Returns
 /// Ok(()) if build succeeds, Err with message on failure
-pub fn build_project(args: &[String]) -> Result<(), String> {
+pub fn build_project(args: &[String], link_libs: &[String]) -> Result<(), String> {
     if args.is_empty() {
         let toml_path = Path::new("Summit.toml");
         if toml_path.exists() {
-            return build_from_config(toml_path);
+            return build_from_config(toml_path, link_libs);
         } else {
             return Err("No input file specified and no Summit.toml found. Usage: summit build <input.sm>".to_string());
         }
@@ -24,7 +25,8 @@ pub fn build_project(args: &[String]) -> Result<(), String> {
     let mut full_args = vec!["summit".to_string()];
     full_args.extend_from_slice(args);
 
-    let config = parse_args(&full_args)?;
+    let mut config = parse_args(&full_args)?;
+    config.link_libs.extend_from_slice(link_libs);
 
     let mut compiler = Compiler::new(config);
     compiler.compile()?;
@@ -33,7 +35,7 @@ pub fn build_project(args: &[String]) -> Result<(), String> {
 }
 
 /// Builds from a Summit.toml configuration file.
-fn build_from_config(toml_path: &Path) -> Result<(), String> {
+fn build_from_config(toml_path: &Path, extra_link_libs: &[String]) -> Result<(), String> {
     let config = SummitConfig::load(toml_path)?;
 
     let input_file = config.project.main.clone();
@@ -64,10 +66,27 @@ fn build_from_config(toml_path: &Path) -> Result<(), String> {
 
     let c_output = intermediate_dir.join(format!("{}.c", file_stem));
 
+    let mut link_libs = Vec::new();
+
+    if config.build.link_summitstd {
+        link_libs.push("summitstd".to_string());
+    }
+
+    if config.build.link_libc {
+        link_libs.push("c".to_string());
+    }
+
+    if let Some(ref libs) = config.build.link_libraries {
+        link_libs.extend(libs.clone());
+    }
+    
+    link_libs.extend_from_slice(extra_link_libs);
+
     let compiler_config = CompilerConfig {
         input_file: input_path.to_path_buf(),
         c_output_file: c_output.clone(),
         output_file: Some(output_path.clone()),
+        link_libs,
     };
 
     let mut compiler = Compiler::new(compiler_config);

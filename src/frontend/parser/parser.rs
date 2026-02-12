@@ -94,6 +94,10 @@ impl Parser {
                     let mut decl_parser = DeclarationParser::new(self);
                     imports.push(decl_parser.parse_import()?);
                 }
+                Token::Struct => {
+                    let mut decl_parser = DeclarationParser::new(self);
+                    globals.push(decl_parser.parse_struct()?);
+                }
                 Token::Var => {
                     let mut decl_parser = DeclarationParser::new(self);
                     globals.push(decl_parser.parse_global_var()?);
@@ -107,6 +111,10 @@ impl Parser {
                     globals.push(decl_parser.parse_global_comptime()?);
                 }
                 Token::Func => {
+                    let mut decl_parser = DeclarationParser::new(self);
+                    functions.push(decl_parser.parse_func()?);
+                }
+                Token::Extern => {
                     let mut decl_parser = DeclarationParser::new(self);
                     functions.push(decl_parser.parse_func()?);
                 }

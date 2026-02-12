@@ -1,0 +1,8 @@
+[project]
+name = "abi-example"
+version = "0.1.0"
+main = "src/main.sm"
+
+[build]
+link_libc = true
+link_summitstd = true

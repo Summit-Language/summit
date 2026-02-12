@@ -62,13 +62,24 @@ impl CompileTimeChecker {
                     if !pattern_is_constant {
                         return false;
                     }
-                    
+
                     if !self.is_compile_time_constant_expr(&case.result, runtime_globals) {
                         return false;
                     }
                 }
-                
+
                 self.is_compile_time_constant_expr(else_expr, runtime_globals)
+            }
+            Expression::StructInit { fields, .. } => {
+                for field_init in fields {
+                    if !self.is_compile_time_constant_expr(&field_init.value, runtime_globals) {
+                        return false;
+                    }
+                }
+                true
+            }
+            Expression::FieldAccess { object, .. } => {
+                self.is_compile_time_constant_expr(object, runtime_globals)
             }
             Expression::Call { .. } => false,
         }

@@ -1,9 +1,6 @@
 use super::expressions::Expression;
 
 /// All the different kinds of statements in Summit.
-///
-/// Statements are the building blocks of Summit programs, they're
-/// the things that actually "do stuff" in your code.
 #[derive(Debug, Clone)]
 pub enum Statement {
     /// A variable declaration: `var {name}: {type} = {value};`
@@ -31,6 +28,13 @@ pub enum Statement {
     Assign {
         name: String,
         value: Expression
+    },
+
+    /// A field assignment: `point.x = 5;`
+    FieldAssign {
+        object: String,
+        field: String,
+        value: Expression,
     },
 
     /// A return statement: `ret {expression};`

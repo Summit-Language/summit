@@ -7,21 +7,22 @@ use crate::commands::build_project;
 ///
 /// # Arguments
 /// * `file` - Optional Summit source file to compile and run. If None, uses Summit.toml config.
+/// * `link_libs` - Additional libraries to link (from -l flags)
 ///
 /// # Returns
 /// * `Ok(())` if the program compiles and runs successfully
 /// * `Err(String)` with an error message if something goes wrong
-pub fn run_project(file: Option<&str>) -> Result<(), String> {
+pub fn run_project(file: Option<&str>, link_libs: &[String]) -> Result<(), String> {
     println!("Building project...");
 
     if let Some(f) = file {
-        build_project(&[f.to_string()])?;
+        build_project(&[f.to_string()], link_libs)?;
     } else {
         let toml_path = Path::new("Summit.toml");
         if !toml_path.exists() {
             return Err("No Summit.toml found in current directory. Run 'summit new' to create a project or specify a file.".to_string());
         }
-        build_project(&[])?;
+        build_project(&[], link_libs)?;
     }
 
     println!();

@@ -19,12 +19,14 @@ impl TypeInference {
     /// - `expr`: The expression to analyze
     /// - `scope`: Current variable scope with type information
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     /// - `type_utils`: Type utility functions
     ///
     /// # Returns
     /// Result containing the inferred type or an error message
     pub fn infer_type(&self, expr: &Expression, scope: &HashMap<String, String>,
                       functions: &HashMap<String, Function>,
+                      structs: &HashMap<String, StructDef>,
                       type_utils: &TypeCheckerUtils) -> Result<String, String> {
         match expr {
             Expression::IntLiteral(val) => {
@@ -42,17 +44,59 @@ impl TypeInference {
                 self.infer_call_type(path, type_args, functions)
             }
             Expression::Binary { left, right, op } => {
-                self.infer_binary_type(left, right, op, scope, functions, type_utils)
+                self.infer_binary_type(left, right, op, scope, functions, structs, type_utils)
             }
             Expression::Unary { op, operand } => {
-                self.infer_unary_type(op, operand, scope, functions, type_utils)
+                self.infer_unary_type(op, operand, scope, functions, structs, type_utils)
             }
             Expression::IfExpr { then_expr, else_expr, .. } => {
-                self.infer_if_expr_type(then_expr, else_expr, scope, functions, type_utils)
+                self.infer_if_expr_type(then_expr, else_expr, scope, functions, structs, type_utils)
             }
             Expression::WhenExpr { cases, else_expr, .. } => {
-                self.infer_when_expr_type(cases, else_expr, scope, functions, type_utils)
+                self.infer_when_expr_type(cases, else_expr, scope, functions, structs, type_utils)
             }
+            Expression::StructInit { struct_name, .. } => {
+                if structs.contains_key(struct_name) {
+                    Ok(struct_name.clone())
+                } else {
+                    Err(format!("Undefined struct: {}", struct_name))
+                }
+            }
+            Expression::FieldAccess { object, field } => {
+                self.infer_field_access_type(object, field, scope, functions, structs, type_utils)
+            }
+        }
+    }
+
+    /// Infers the type of field access expression.
+    ///
+    /// # Parameters
+    /// - `self`: Immutable reference to self
+    /// - `object`: The object whose field is being accessed
+    /// - `field`: The field name
+    /// - `scope`: Current variable scope with type information
+    /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
+    /// - `type_utils`: Type utility functions
+    ///
+    /// # Returns
+    /// Result containing the field's type or an error message
+    fn infer_field_access_type(&self, object: &Expression, field: &str,
+                               scope: &HashMap<String, String>,
+                               functions: &HashMap<String, Function>,
+                               structs: &HashMap<String, StructDef>,
+                               type_utils: &TypeCheckerUtils) -> Result<String, String> {
+        let object_type = self.infer_type(object, scope, functions, structs, type_utils)?;
+
+        if let Some(struct_def) = structs.get(&object_type) {
+            for struct_field in &struct_def.fields {
+                if struct_field.name == field {
+                    return Ok(struct_field.field_type.clone());
+                }
+            }
+            Err(format!("Field '{}' not found in struct '{}'", field, object_type))
+        } else {
+            Err(format!("Cannot access field '{}' on non-struct type '{}'", field, object_type))
         }
     }
 
@@ -133,12 +177,14 @@ impl TypeInference {
     /// - `op`: The binary operator
     /// - `scope`: Current variable scope with type information
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     /// - `type_utils`: Type utility functions
     ///
     /// # Returns
     /// Result containing the inferred type or an error message
     fn infer_binary_type(&self, left: &Expression, right: &Expression, op: &BinaryOp,
                          scope: &HashMap<String, String>, functions: &HashMap<String, Function>,
+                         structs: &HashMap<String, StructDef>,
                          type_utils: &TypeCheckerUtils) -> Result<String, String> {
         match op {
             BinaryOp::Equal | BinaryOp::NotEqual |
@@ -148,8 +194,8 @@ impl TypeInference {
                 Ok("bool".to_string())
             }
             _ => {
-                let left_type = self.infer_type(left, scope, functions, type_utils)?;
-                let right_type = self.infer_type(right, scope, functions, type_utils)?;
+                let left_type = self.infer_type(left, scope, functions, structs, type_utils)?;
+                let right_type = self.infer_type(right, scope, functions, structs, type_utils)?;
                 Ok(type_utils.wider_type(&left_type, &right_type))
             }
         }
@@ -163,16 +209,18 @@ impl TypeInference {
     /// - `operand`: The operand expression
     /// - `scope`: Current variable scope with type information
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     /// - `type_utils`: Type utility functions
     ///
     /// # Returns
     /// Result containing the inferred type or an error message
     fn infer_unary_type(&self, op: &UnaryOp, operand: &Expression, scope: &HashMap<String, String>,
                         functions: &HashMap<String, Function>,
+                        structs: &HashMap<String, StructDef>,
                         type_utils: &TypeCheckerUtils) -> Result<String, String> {
         match op {
             UnaryOp::Negate => {
-                self.infer_type(operand, scope, functions, type_utils)
+                self.infer_type(operand, scope, functions, structs, type_utils)
             }
             UnaryOp::Not => {
                 Ok("bool".to_string())
@@ -188,15 +236,17 @@ impl TypeInference {
     /// - `else_expr`: The else branch expression
     /// - `scope`: Current variable scope with type information
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     /// - `type_utils`: Type utility functions
     ///
     /// # Returns
     /// Result containing the inferred type or an error message
     fn infer_if_expr_type(&self, then_expr: &Expression, else_expr: &Expression,
                           scope: &HashMap<String, String>, functions: &HashMap<String, Function>,
+                          structs: &HashMap<String, StructDef>,
                           type_utils: &TypeCheckerUtils) -> Result<String, String> {
-        let then_type = self.infer_type(then_expr, scope, functions, type_utils)?;
-        let else_type = self.infer_type(else_expr, scope, functions, type_utils)?;
+        let then_type = self.infer_type(then_expr, scope, functions, structs, type_utils)?;
+        let else_type = self.infer_type(else_expr, scope, functions, structs, type_utils)?;
         Ok(type_utils.wider_type(&then_type, &else_type))
     }
 
@@ -208,27 +258,29 @@ impl TypeInference {
     /// - `else_expr`: The else branch expression
     /// - `scope`: Current variable scope with type information
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     /// - `type_utils`: Type utility functions
     ///
     /// # Returns
     /// Result containing the inferred type or an error message
     fn infer_when_expr_type(&self, cases: &[WhenExprCase], else_expr: &Expression,
                             scope: &HashMap<String, String>, functions: &HashMap<String, Function>,
+                            structs: &HashMap<String, StructDef>,
                             type_utils: &TypeCheckerUtils) -> Result<String, String> {
         if cases.is_empty() {
-            return self.infer_type(else_expr, scope, functions, type_utils);
+            return self.infer_type(else_expr, scope, functions, structs, type_utils);
         }
 
-        let first_type = self.infer_type(&cases[0].result, scope, functions, type_utils)?;
-        
+        let first_type = self.infer_type(&cases[0].result, scope, functions, structs, type_utils)?;
+
         let mut result_type = first_type;
 
         for case in &cases[1..] {
-            let case_type = self.infer_type(&case.result, scope, functions, type_utils)?;
+            let case_type = self.infer_type(&case.result, scope, functions, structs, type_utils)?;
             result_type = type_utils.wider_type(&result_type, &case_type);
         }
 
-        let else_type = self.infer_type(else_expr, scope, functions, type_utils)?;
+        let else_type = self.infer_type(else_expr, scope, functions, structs, type_utils)?;
         result_type = type_utils.wider_type(&result_type, &else_type);
 
         Ok(result_type)

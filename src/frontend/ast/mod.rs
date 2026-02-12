@@ -3,6 +3,7 @@ mod declarations;
 mod statements;
 mod expressions;
 mod operators;
+mod structs;
 
 pub use program::Program;
 pub use declarations::{GlobalDeclaration, Import, Function, Parameter};
@@ -14,3 +15,4 @@ pub use statements::ElseIfBlock;
 pub use expressions::Expression;
 pub use expressions::WhenExprCase;
 pub use operators::{BinaryOp, UnaryOp};
+pub use structs::{StructDef, StructField, StructFieldInit};

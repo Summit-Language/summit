@@ -44,12 +44,14 @@ impl TypeChecker {
     /// - `expr`: The expression to analyze
     /// - `scope`: Current variable scope mapping names to types
     /// - `functions`: Available function definitions
+    /// - `structs`: Available struct definitions
     ///
     /// # Returns
     /// The inferred type name, or Err with message on failure
     pub fn infer_type(&self, expr: &Expression, scope: &HashMap<String, String>,
-                      functions: &HashMap<String, Function>) -> Result<String, String> {
-        self.type_inference.infer_type(expr, scope, functions, &self.type_utils)
+                      functions: &HashMap<String, Function>,
+                      structs: &HashMap<String, StructDef>) -> Result<String, String> {
+        self.type_inference.infer_type(expr, scope, functions, structs, &self.type_utils)
     }
 
     /// Checks if an actual type is compatible with an expected type.

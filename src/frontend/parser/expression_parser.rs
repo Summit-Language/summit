@@ -9,23 +9,15 @@ pub struct ExpressionParser<'a> {
 
 impl<'a> ExpressionParser<'a> {
     /// Creates a new ExpressionParser for the given Parser.
-    ///
-    /// # Parameters
-    /// - `parser`: The parser to use for token handling
     pub fn new(parser: &'a mut Parser) -> Self {
         ExpressionParser { parser }
     }
 
     /// Parses a full expression from the current token position.
-    ///
-    /// # Parameters
-    /// - `self`: Mutable reference to self
-    ///
-    /// # Returns
-    /// An `Expression` or an error message.
     pub fn parse_expr(&mut self) -> Result<Expression, String> {
         self.parse_ternary()
     }
+
 
     /// Parses ternary expressions.
     ///
@@ -393,31 +385,31 @@ impl<'a> ExpressionParser<'a> {
     /// # Returns
     /// An `Expression` or an error message.
     fn parse_primary(&mut self) -> Result<Expression, String> {
-        match self.parser.current().clone() {
+        let expr = match self.parser.current().clone() {
             Token::IntLiteral(n) => {
                 self.parser.advance();
-                Ok(Expression::IntLiteral(n))
+                Expression::IntLiteral(n)
             }
             Token::StringLiteral(s) => {
                 self.parser.advance();
-                Ok(Expression::StringLiteral(s))
+                Expression::StringLiteral(s)
             }
             Token::Null => {
                 self.parser.advance();
-                Ok(Expression::NullLiteral)
+                Expression::NullLiteral
             }
             Token::True => {
                 self.parser.advance();
-                Ok(Expression::BoolLiteral(true))
+                Expression::BoolLiteral(true)
             }
             Token::False => {
                 self.parser.advance();
-                Ok(Expression::BoolLiteral(false))
+                Expression::BoolLiteral(false)
             }
             Token::Identifier(name) => {
                 self.parser.advance();
 
-                let mut path = vec![name];
+                let mut path = vec![name.clone()];
 
                 while self.parser.current() == &Token::DoubleColon {
                     self.parser.advance();
@@ -488,21 +480,55 @@ impl<'a> ExpressionParser<'a> {
                     }
 
                     self.parser.expect(Token::RightParen)?;
-                    Ok(Expression::Call { path, type_args, args })
+                    Expression::Call { path, type_args, args }
+                } else if self.parser.current() == &Token::LeftBrace && path.len() == 1 && type_args.is_none() {
+                    let mut struct_parser = super::struct_parser::StructParser::new(self.parser);
+                    return struct_parser.parse_struct_init(name);
                 } else if path.len() == 1 && type_args.is_none() {
-                    Ok(Expression::Variable(path[0].clone()))
+                    Expression::Variable(path[0].clone())
                 } else {
-                    Err("Path without function call or type parameters without function call"
-                        .to_string())
+                    return Err("Path without function call or type parameters without function call"
+                        .to_string());
                 }
             }
             Token::LeftParen => {
                 self.parser.advance();
-                let expr = self.parse_expr()?;
+                let inner_expr = self.parse_expr()?;
                 self.parser.expect(Token::RightParen)?;
-                Ok(expr)
+                inner_expr
             }
-            _ => Err(format!("Unexpected token in expression: {:?}", self.parser.current())),
+            _ => return Err(format!("Unexpected token in expression: {:?}", self.parser.current())),
+        };
+
+        self.parse_field_access(expr)
+    }
+
+    /// Parses field access on an expression.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `expr`: The expression inputted
+    ///
+    /// # Returns
+    /// An `Expression` or an error message.
+    fn parse_field_access(&mut self, mut expr: Expression) -> Result<Expression, String> {
+        while self.parser.current() == &Token::Dot {
+            self.parser.advance();
+
+            let field = if let Token::Identifier(f) = self.parser.current() {
+                let field_name = f.clone();
+                self.parser.advance();
+                field_name
+            } else {
+                return Err("Expected field name after '.'".to_string());
+            };
+
+            expr = Expression::FieldAccess {
+                object: Box::new(expr),
+                field,
+            };
         }
+
+        Ok(expr)
     }
 }

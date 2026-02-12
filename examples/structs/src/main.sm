@@ -1,0 +1,32 @@
+import std::io;
+
+struct Vec3 {
+    x: i32
+    y: i32
+    z: i32
+}
+
+struct Transform {
+    position: Vec3
+    rotation: Vec3
+}
+
+func print_transform(transform: Transform): void {
+    io::println("Transform Position: x = {}, y = {}, z = {}",
+        transform.position.x, transform.position.y, transform.position.z);
+    io::println("Transform Rotation: x = {}, y = {}, z = {}",
+        transform.rotation.x, transform.rotation.y, transform.rotation.z);
+}
+
+func main(): i8 {
+    const pos = Vec3{ 3, 3, 3 };
+    const rot = Vec3{ 0, 0, 0 };
+
+    var transform = Transform{ pos, rot };
+
+    transform.position.x = transform.position.x + 5;
+    transform.position.z = transform.position.z + 2;
+
+    print_transform(transform);
+    ret 0;
+}

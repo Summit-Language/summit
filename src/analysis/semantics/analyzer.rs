@@ -5,6 +5,7 @@ use super::function_analyzer::FunctionAnalyzer;
 use super::statement_analyzer::StatementAnalyzer;
 use super::scope_manager::ScopeManager;
 use super::compile_time_checker::CompileTimeChecker;
+use super::mutation_checker::MutationChecker;
 
 /// Performs semantic analysis on a program.
 ///
@@ -23,8 +24,10 @@ pub struct SemanticAnalyzer {
     pub imported_modules: HashSet<Vec<String>>,
     pub functions: HashMap<String, Function>,
     pub function_params: HashMap<String, Vec<(String, String)>>,
+    pub structs: HashMap<String, StructDef>,
     pub type_checker: TypeChecker,
     pub global_scope: HashMap<String, String>,
+    pub global_mutability: HashMap<String, bool>,
 }
 
 impl SemanticAnalyzer {
@@ -37,8 +40,10 @@ impl SemanticAnalyzer {
             imported_modules: HashSet::new(),
             functions: HashMap::new(),
             function_params: HashMap::new(),
+            structs: HashMap::new(),
             type_checker: TypeChecker::new(),
             global_scope: HashMap::new(),
+            global_mutability: HashMap::new(),
         }
     }
 
@@ -54,26 +59,47 @@ impl SemanticAnalyzer {
         for import in &program.imports {
             self.imported_modules.insert(import.path.clone());
         }
-        
+
+        for global in &program.globals {
+            if let GlobalDeclaration::Struct(struct_def) = global {
+                // Check for duplicate struct names
+                if self.structs.contains_key(&struct_def.name) {
+                    return Err(format!("Struct '{}' is defined multiple times", struct_def.name));
+                }
+                
+                let mut field_names = HashSet::new();
+                for field in &struct_def.fields {
+                    if !field_names.insert(&field.name) {
+                        return Err(format!(
+                            "Struct '{}' has duplicate field '{}'",
+                            struct_def.name, field.name
+                        ));
+                    }
+                }
+
+                self.structs.insert(struct_def.name.clone(), struct_def.clone());
+            }
+        }
+
         for global in &program.globals {
             self.analyze_global(global)?;
         }
-        
+
         for stmt in &program.statements {
             match stmt {
                 Statement::Var { name, var_type, value } => {
                     let scope_manager = ScopeManager::new(self);
                     scope_manager.analyze_expression(value, &self.global_scope)?;
                     let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                     &self.functions)?;
-                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                     &self.functions, &self.structs)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type, true)?;
                 }
                 Statement::Const { name, var_type, value } => {
                     let scope_manager = ScopeManager::new(self);
                     scope_manager.analyze_expression(value, &self.global_scope)?;
                     let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                     &self.functions)?;
-                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                     &self.functions, &self.structs)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type, false)?;
                 }
                 Statement::Comptime { name, var_type, value } => {
                     let compile_time_checker = CompileTimeChecker::new(self);
@@ -83,13 +109,13 @@ impl SemanticAnalyzer {
                     let scope_manager = ScopeManager::new(self);
                     scope_manager.analyze_expression(value, &self.global_scope)?;
                     let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                     &self.functions)?;
-                    self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                     &self.functions, &self.structs)?;
+                    self.validate_and_register_global(name, var_type, value, &inferred_type, false)?;
                 }
                 _ => {}
             }
         }
-        
+
         for func in &program.functions {
             if self.functions.contains_key(&func.name) {
                 return Err(format!("Function '{}' is defined multiple times", func.name));
@@ -125,12 +151,31 @@ impl SemanticAnalyzer {
        )) {
             return Err("No 'main' function defined and no top-level statements".to_string());
         }
-        
+
+        if !actual_statements.is_empty() {
+            let mut mutations = HashSet::new();
+            let mut var_declarations = HashMap::new();
+            let mutation_checker = MutationChecker::new();
+
+            for stmt in &actual_statements {
+                mutation_checker.collect_mutations(stmt, &mut mutations, &mut var_declarations)?;
+            }
+
+            for (name, is_mutable) in &self.global_mutability {
+                if !var_declarations.contains_key(name) {
+                    var_declarations.insert(name.clone(), *is_mutable);
+                }
+            }
+
+            mutation_checker.validate_mutations(&mutations, &var_declarations)?;
+        }
+
         if !actual_statements.is_empty() && !has_main {
             let mut scope = self.global_scope.clone();
+            let mut mutability = self.global_mutability.clone();
             let stmt_analyzer = StatementAnalyzer::new(self);
             for stmt in &actual_statements {
-                stmt_analyzer.analyze_stmt(stmt, &mut scope)?;
+                stmt_analyzer.analyze_stmt(stmt, &mut scope, &mut mutability)?;
             }
         }
 
@@ -158,16 +203,16 @@ impl SemanticAnalyzer {
                 let scope_manager = ScopeManager::new(self);
                 scope_manager.analyze_expression(value, &self.global_scope)?;
                 let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                 &self.functions)?;
-                self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                 &self.functions, &self.structs)?;
+                self.validate_and_register_global(name, var_type, value, &inferred_type, true)?;
                 Ok(())
             }
             GlobalDeclaration::Const { name, var_type, value } => {
                 let scope_manager = ScopeManager::new(self);
                 scope_manager.analyze_expression(value, &self.global_scope)?;
                 let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                 &self.functions)?;
-                self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                 &self.functions, &self.structs)?;
+                self.validate_and_register_global(name, var_type, value, &inferred_type, false)?;
                 Ok(())
             }
             GlobalDeclaration::Comptime { name, var_type, value } => {
@@ -178,8 +223,11 @@ impl SemanticAnalyzer {
                 let scope_manager = ScopeManager::new(self);
                 scope_manager.analyze_expression(value, &self.global_scope)?;
                 let inferred_type = self.type_checker.infer_type(value, &self.global_scope,
-                                                                 &self.functions)?;
-                self.validate_and_register_global(name, var_type, value, &inferred_type)?;
+                                                                 &self.functions, &self.structs)?;
+                self.validate_and_register_global(name, var_type, value, &inferred_type, false)?;
+                Ok(())
+            }
+            GlobalDeclaration::Struct(_) => {
                 Ok(())
             }
         }
@@ -193,11 +241,13 @@ impl SemanticAnalyzer {
     /// - `var_type`: Optional explicit type annotation
     /// - `value`: The initialization expression
     /// - `inferred_type`: The type inferred from the expression
+    /// - `is_mutable`: Whether the variable is mutable (true for var, false for const/comptime)
     ///
     /// # Returns
     /// Ok(()) if validation succeeds, Err with message on failure
     fn validate_and_register_global(&mut self, name: &str, var_type: &Option<String>,
-                                    value: &Expression, inferred_type: &str) -> Result<(), String> {
+                                    value: &Expression, inferred_type: &str,
+                                    is_mutable: bool) -> Result<(), String> {
         if let Some(explicit_type) = var_type {
             self.type_checker.check_type_compatibility(explicit_type, inferred_type, value)?;
             self.type_checker.check_expression_bounds(value, explicit_type)?;
@@ -206,6 +256,9 @@ impl SemanticAnalyzer {
             self.type_checker.check_expression_bounds(value, inferred_type)?;
             self.global_scope.insert(name.to_string(), inferred_type.to_string());
         }
+        
+        self.global_mutability.insert(name.to_string(), is_mutable);
+
         Ok(())
     }
 }

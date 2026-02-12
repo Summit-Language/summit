@@ -10,6 +10,9 @@ pub struct TypeInference<'a> {
 
     /// Contains return types for functions
     function_signatures: &'a HashMap<String, String>,
+
+    /// Contains struct definitions for field type lookups
+    struct_defs: &'a HashMap<String, StructDef>,
 }
 
 impl<'a> TypeInference<'a> {
@@ -18,10 +21,16 @@ impl<'a> TypeInference<'a> {
     /// # Parameters
     /// - `symbol_table`: Map of variable names to their types
     /// - `function_signatures`: Map of function names to their return types
-    pub fn new(symbol_table: &'a HashMap<String, String>, function_signatures: &'a HashMap<String, String>) -> Self {
+    /// - `struct_defs`: Map of struct names to their definitions
+    pub fn new(
+        symbol_table: &'a HashMap<String, String>,
+        function_signatures: &'a HashMap<String, String>,
+        struct_defs: &'a HashMap<String, StructDef>,
+    ) -> Self {
         TypeInference {
             symbol_table,
             function_signatures,
+            struct_defs,
         }
     }
 
@@ -62,18 +71,24 @@ impl<'a> TypeInference<'a> {
                 if cases.is_empty() {
                     return self.infer_expression_type(else_expr);
                 }
-                
+
                 let mut result_type = self.infer_expression_type(&cases[0].result);
-                
+
                 for case in &cases[1..] {
                     let case_type = self.infer_expression_type(&case.result);
                     result_type = self.wider_type(&result_type, &case_type);
                 }
-                
+
                 let else_type = self.infer_expression_type(else_expr);
                 result_type = self.wider_type(&result_type, &else_type);
 
                 result_type
+            }
+            Expression::StructInit { struct_name, .. } => {
+                struct_name.clone()
+            }
+            Expression::FieldAccess { object, field } => {
+                self.infer_field_type(object, field)
             }
         }
     }
@@ -91,7 +106,7 @@ impl<'a> TypeInference<'a> {
         if IoPathMatcher::is_readln(path) {
             return "str".to_string();
         }
-        
+
         if IoPathMatcher::is_read(path) {
             if let Some(types) = type_args {
                 if types.len() == 1 {
@@ -105,6 +120,29 @@ impl<'a> TypeInference<'a> {
         } else {
             "i64".to_string()
         }
+    }
+
+    /// Determines the type of struct field access.
+    ///
+    /// # Parameters
+    /// - `self`: Immutable reference to self
+    /// - `object`: The object being accessed (variable name or nested expression)
+    /// - `field`: The field name being accessed
+    ///
+    /// # Returns
+    /// The type of the field as a string
+    fn infer_field_type(&self, object: &Expression, field: &str) -> String {
+        let object_type = self.infer_expression_type(object);
+        
+        if let Some(struct_def) = self.struct_defs.get(&object_type) {
+            for struct_field in &struct_def.fields {
+                if struct_field.name == field {
+                    return struct_field.field_type.clone();
+                }
+            }
+        }
+
+        "i64".to_string()
     }
 
     /// Returns the wider of two numeric types.

@@ -22,7 +22,13 @@ pub struct ProjectConfig {
 pub struct BuildConfig {
     #[serde(default = "default_output_dir")]
     pub output_dir: String,
-    pub output_name: Option<String>,  // Remove #[serde(skip)] to allow deserialization
+    pub output_name: Option<String>,
+    #[serde(default = "default_link_libc", alias = "link-libc")]
+    pub link_libc: bool,
+    #[serde(default = "default_link_summitstd", alias = "link-summitstd")]
+    pub link_summitstd: bool,
+    #[serde(default, alias = "link-libraries")]
+    pub link_libraries: Option<Vec<String>>,
 }
 
 impl Default for BuildConfig {
@@ -30,12 +36,23 @@ impl Default for BuildConfig {
         BuildConfig {
             output_dir: default_output_dir(),
             output_name: None,
+            link_libc: default_link_libc(),
+            link_summitstd: default_link_summitstd(),
+            link_libraries: None,
         }
     }
 }
 
 fn default_output_dir() -> String {
     "build".to_string()
+}
+
+fn default_link_libc() -> bool {
+    true
+}
+
+fn default_link_summitstd() -> bool {
+    true
 }
 
 impl SummitConfig {
@@ -48,7 +65,6 @@ impl SummitConfig {
             .map_err(|e| format!("Failed to parse Summit.toml: {}", e))
     }
 
-    /// Creates a default configuration
     pub fn default_config(project_name: &str) -> Self {
         SummitConfig {
             project: ProjectConfig {
@@ -60,7 +76,6 @@ impl SummitConfig {
         }
     }
 
-    /// Saves the configuration to a file
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let content = toml::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
@@ -69,7 +84,6 @@ impl SummitConfig {
             .map_err(|e| format!("Failed to write Summit.toml: {}", e))
     }
 
-    /// Gets the output executable name (uses output_name if set, otherwise project name)
     pub fn get_output_name(&self) -> String {
         self.build.output_name
             .clone()

@@ -17,6 +17,26 @@ impl<'a> StatementParser<'a> {
         StatementParser { parser }
     }
 
+    /// Parses a type, which can be either a built-in type or a struct identifier.
+    ///
+    /// # Returns
+    /// The type name as a String, or an error message.
+    fn parse_type(&mut self) -> Result<String, String> {
+        match self.parser.current() {
+            Token::Type(t) => {
+                let typ = t.clone();
+                self.parser.advance();
+                Ok(typ)
+            }
+            Token::Identifier(id) => {
+                let typ = id.clone();
+                self.parser.advance();
+                Ok(typ)
+            }
+            _ => Err("Expected type or struct name".to_string())
+        }
+    }
+
     /// Parses a statement from the current token position.
     ///
     /// # Parameters
@@ -39,7 +59,9 @@ impl<'a> StatementParser<'a> {
             Token::Stop => self.parse_stop(),
             Token::Fallthrough => self.parse_fallthrough(),
             Token::Identifier(_) => {
-                if self.parser.peek(1) == &Token::Assign {
+                if self.parser.peek(1) == &Token::Dot {
+                    self.parse_field_assign()
+                } else if self.parser.peek(1) == &Token::Assign {
                     self.parse_assign()
                 } else {
                     let mut expr_parser = ExpressionParser::new(self.parser);
@@ -54,6 +76,72 @@ impl<'a> StatementParser<'a> {
                 self.parser.expect(Token::Semicolon)?;
                 Ok(Statement::Expression(expr))
             }
+        }
+    }
+
+    /// Parses a field assignment statement with support for chained field access.
+    ///
+    /// Format: `object.field = value;` or `object.field.subfield = value;`
+    ///
+    /// # Returns
+    /// A `Statement::FieldAssign` or an error message.
+    fn parse_field_assign(&mut self) -> Result<Statement, String> {
+        // Parse the base object
+        let object = if let Token::Identifier(n) = self.parser.current() {
+            let name = n.clone();
+            self.parser.advance();
+            name
+        } else {
+            return Err("Expected object name".to_string());
+        };
+
+        let mut fields = Vec::new();
+
+        while self.parser.current() == &Token::Dot {
+            self.parser.advance();
+
+            if let Token::Identifier(n) = self.parser.current() {
+                fields.push(n.clone());
+                self.parser.advance();
+            } else {
+                return Err("Expected field name after '.'".to_string());
+            }
+        }
+
+        if fields.is_empty() {
+            return Err("Expected at least one field access".to_string());
+        }
+
+        self.parser.expect(Token::Assign)?;
+
+        let mut expr_parser = ExpressionParser::new(self.parser);
+        let value = expr_parser.parse_expr()?;
+
+        self.parser.expect(Token::Semicolon)?;
+
+        if fields.len() == 1 {
+            Ok(Statement::FieldAssign {
+                object,
+                field: fields[0].clone(),
+                value
+            })
+        } else {
+            let mut field_expr = Expression::Variable(object.clone());
+
+            for i in 0..fields.len() - 1 {
+                field_expr = Expression::FieldAccess {
+                    object: Box::new(field_expr),
+                    field: fields[i].clone(),
+                };
+            }
+
+            let full_field = fields.join(".");
+
+            Ok(Statement::FieldAssign {
+                object,
+                field: full_field,
+                value
+            })
         }
     }
 
@@ -387,13 +475,7 @@ impl<'a> StatementParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -428,13 +510,7 @@ impl<'a> StatementParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -449,13 +525,13 @@ impl<'a> StatementParser<'a> {
 
     /// Parses a let variable declaration statement.
     ///
-    /// Format: `let {name}: {type} = {value};`
+    /// Format: `var {name}: {type} = {value};`
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
     ///
     /// # Returns
-    /// A `Statement::Let` or an error message.
+    /// A `Statement::Var` or an error message.
     fn parse_var(&mut self) -> Result<Statement, String> {
         self.parser.expect(Token::Var)?;
 
@@ -469,13 +545,7 @@ impl<'a> StatementParser<'a> {
 
         let var_type = if self.parser.current() == &Token::Colon {
             self.parser.advance();
-            if let Token::Type(t) = self.parser.current() {
-                let typ = t.clone();
-                self.parser.advance();
-                Some(typ)
-            } else {
-                return Err("Expected type after colon".to_string());
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };

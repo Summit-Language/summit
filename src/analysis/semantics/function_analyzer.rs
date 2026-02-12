@@ -32,9 +32,12 @@ impl<'a> FunctionAnalyzer<'a> {
     /// Ok(()) if analysis succeeds, Err with message on failure
     pub fn analyze_func(&self, func: &Function) -> Result<(), String> {
         let mut scope = self.analyzer.global_scope.clone();
+        let mut mutability = self.analyzer.global_mutability.clone();
 
+        // Add function parameters to scope - parameters are immutable
         for param in &func.params {
             scope.insert(param.name.clone(), param.param_type.clone());
+            mutability.insert(param.name.clone(), false);
         }
 
         let mut mutations = HashSet::new();
@@ -57,7 +60,8 @@ impl<'a> FunctionAnalyzer<'a> {
         let stmt_analyzer = StatementAnalyzer::new(self.analyzer);
         for stmt in &func.body {
             stmt_analyzer.analyze_stmt_with_return_type(stmt, &mut scope,
-                                                             &func.name, &func.return_type)?;
+                                                        &func.name, &func.return_type,
+                                                        &mut mutability)?;
         }
 
         Ok(())

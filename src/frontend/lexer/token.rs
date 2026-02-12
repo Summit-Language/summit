@@ -21,6 +21,7 @@ pub enum Token {
     Stop,
     When,
     Expect,
+    Struct,
     Is,
     Fallthrough,
     In,
@@ -70,8 +71,11 @@ pub enum Token {
     RightBracket,
     LeftAngle,
     RightAngle,
+    Dot,
+    Ellipsis,
 
     // Special
+    Extern,
     Eof,
 }
 

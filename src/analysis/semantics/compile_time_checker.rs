@@ -49,7 +49,7 @@ impl<'a> CompileTimeChecker<'a> {
                 if !self.is_compile_time_constant(value) {
                     return false;
                 }
-                
+
                 for case in cases {
                     let pattern_is_constant = match &case.pattern {
                         WhenPattern::Single(pattern_expr) => {
@@ -64,15 +64,26 @@ impl<'a> CompileTimeChecker<'a> {
                     if !pattern_is_constant {
                         return false;
                     }
-                    
+
                     if !self.is_compile_time_constant(&case.result) {
                         return false;
                     }
                 }
-                
+
                 self.is_compile_time_constant(else_expr)
             }
-            _ => false,
+            Expression::StructInit { fields, .. } => {
+                for field_init in fields {
+                    if !self.is_compile_time_constant(&field_init.value) {
+                        return false;
+                    }
+                }
+                true
+            }
+            Expression::FieldAccess { object, .. } => {
+                self.is_compile_time_constant(object)
+            }
+            Expression::Call { .. } => false,
         }
     }
 
@@ -104,7 +115,7 @@ impl<'a> CompileTimeChecker<'a> {
                 if !self.is_compile_time_evaluable(value) {
                     return false;
                 }
-                
+
                 for case in cases {
                     let pattern_is_evaluable = match &case.pattern {
                         WhenPattern::Single(pattern_expr) => {
@@ -126,6 +137,17 @@ impl<'a> CompileTimeChecker<'a> {
                 }
 
                 self.is_compile_time_evaluable(else_expr)
+            }
+            Expression::StructInit { fields, .. } => {
+                for field_init in fields {
+                    if !self.is_compile_time_evaluable(&field_init.value) {
+                        return false;
+                    }
+                }
+                true
+            }
+            Expression::FieldAccess { object, .. } => {
+                self.is_compile_time_evaluable(object)
             }
             Expression::Call { .. } => false,
         }

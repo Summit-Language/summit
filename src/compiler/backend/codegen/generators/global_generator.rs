@@ -47,9 +47,12 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decl(&mut self, global: &GlobalDeclaration) {
         match global {
-            GlobalDeclaration::Var { name, var_type, value } |
-            GlobalDeclaration::Const { name, var_type, value } |
-            GlobalDeclaration::Comptime { name, var_type, value } => {
+            GlobalDeclaration::Var { name, var_type, 
+                value } |
+            GlobalDeclaration::Const { name, var_type, 
+                value } |
+            GlobalDeclaration::Comptime { name, var_type, 
+                value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
                 let c_type = self.generator.map_type(&summit_type).to_string();
@@ -73,6 +76,7 @@ impl<'a> GlobalGenerator<'a> {
                 TypeResolver::register_variable(&mut self.generator.symbol_table, name,
                                                 summit_type);
             }
+            GlobalDeclaration::Struct(_) => {}
         }
     }
 
@@ -83,7 +87,8 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decls_only(&mut self, global: &GlobalDeclaration) {
         match global {
-            GlobalDeclaration::Var { name, var_type, value } => {
+            GlobalDeclaration::Var { name, var_type, 
+                value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
                 let c_type = self.generator.map_type(&summit_type).to_string();
@@ -94,7 +99,8 @@ impl<'a> GlobalGenerator<'a> {
                 self.generator.emitter.emit(name);
                 self.generator.emitter.emit(";\n");
             }
-            GlobalDeclaration::Const { name, var_type, value } => {
+            GlobalDeclaration::Const { name, var_type, 
+                value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
                 let c_type = self.generator.map_type(&summit_type).to_string();
@@ -111,6 +117,7 @@ impl<'a> GlobalGenerator<'a> {
                 self.generator.emitter.emit(";\n");
             }
             GlobalDeclaration::Comptime { .. } => {}
+            GlobalDeclaration::Struct(_) => {}
         }
     }
 
@@ -142,6 +149,7 @@ impl<'a> GlobalGenerator<'a> {
                 self.generator.emitter.emit(";\n");
             }
             GlobalDeclaration::Comptime { .. } => {}
+            GlobalDeclaration::Struct(_) => {}
         }
     }
 }

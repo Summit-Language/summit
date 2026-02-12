@@ -1,10 +1,8 @@
 use crate::frontend::ast::WhenPattern;
 use super::operators::{BinaryOp, UnaryOp};
+use super::structs::StructFieldInit;
 
 /// All the different kinds of expressions in Summit.
-///
-/// Expressions are parts of code that produce a value when they run,
-/// like `x + 5` or `some_function()`.
 #[derive(Debug, Clone)]
 pub enum Expression {
     /// An integer literal: `42`, `100`, etc.
@@ -64,6 +62,18 @@ pub enum Expression {
         value: Box<Expression>,
         cases: Vec<WhenExprCase>,
         else_expr: Box<Expression>
+    },
+
+    /// A struct instantiation: `Vector2 { x: 3, y: 5 }` or `Vector2 { 3, 5 }`
+    StructInit {
+        struct_name: String,
+        fields: Vec<StructFieldInit>,
+    },
+
+    /// A field access: `point.x`
+    FieldAccess {
+        object: Box<Expression>,
+        field: String,
     },
 }
 

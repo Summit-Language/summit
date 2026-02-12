@@ -48,6 +48,9 @@ impl<'a> StatementGenerator<'a> {
             Statement::Assign { name, value } => {
                 self.emit_assign_stmt(name, value);
             }
+            Statement::FieldAssign { object, field, value } => {
+                self.emit_field_assign_stmt(object, field, value);
+            }
             Statement::Return(expr) => {
                 self.emit_ret_stmt(expr);
             }
@@ -145,14 +148,11 @@ impl<'a> StatementGenerator<'a> {
     /// - `else_block`: Optional default case
     fn emit_when_stmt(&mut self, value: &Expression, cases: &[WhenCase],
                       else_block: &Option<Vec<Statement>>) {
-        // Check if any case has a range pattern
         let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
 
         if has_ranges {
-            // Use if-else chain for range patterns
             self.emit_when_with_ranges(value, cases, else_block);
         } else {
-            // Use switch statement for simple patterns
             self.emit_when_with_switch(value, cases, else_block);
         }
     }
@@ -181,7 +181,8 @@ impl<'a> StatementGenerator<'a> {
 
             self.generator.emitter.indent();
             let type_inference = TypeInference::new(&self.generator.symbol_table,
-                                                    &self.generator.function_signatures);
+                                                    &self.generator.function_signatures,
+                                                    &self.generator.struct_defs);
             let value_type = type_inference.infer_expression_type(value);
             let c_type = self.generator.map_type(&value_type).to_string();
 
@@ -470,7 +471,8 @@ impl<'a> StatementGenerator<'a> {
         body: &[Statement],
     ) {
         let type_inference = TypeInference::new(&self.generator.symbol_table,
-                                                &self.generator.function_signatures);
+                                                &self.generator.function_signatures,
+                                                &self.generator.struct_defs);
         let start_type = type_inference.infer_expression_type(start);
         let end_type = type_inference.infer_expression_type(end);
         let loop_type = type_inference.wider_type(&start_type, &end_type);
@@ -701,6 +703,26 @@ impl<'a> StatementGenerator<'a> {
     fn emit_assign_stmt(&mut self, name: &str, value: &Expression) {
         self.generator.emitter.indent();
         self.generator.emitter.emit(name);
+        self.generator.emitter.emit(" = ");
+
+        let mut expr_gen = ExpressionGenerator::new(self.generator);
+        expr_gen.generate_expr(value);
+
+        self.generator.emitter.emit(";\n");
+    }
+
+    /// Generates C code for a field assignment statement.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `object`: The object name whose field is being assigned
+    /// - `field`: The field name being assigned
+    /// - `value`: Assignment expression
+    fn emit_field_assign_stmt(&mut self, object: &str, field: &str, value: &Expression) {
+        self.generator.emitter.indent();
+        self.generator.emitter.emit(object);
+        self.generator.emitter.emit(".");
+        self.generator.emitter.emit(field);
         self.generator.emitter.emit(" = ");
 
         let mut expr_gen = ExpressionGenerator::new(self.generator);

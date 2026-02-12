@@ -130,6 +130,9 @@ impl<'a> StdlibCollector<'a> {
             Statement::Assign { value, .. } => {
                 self.collect_from_expr(value);
             }
+            Statement::FieldAssign { value, .. } => {
+                self.collect_from_expr(value);
+            }
             Statement::Return(expr) => {
                 self.collect_from_expr(expr);
             }

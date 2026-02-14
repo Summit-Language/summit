@@ -30,5 +30,5 @@ pub fn get_stdlib_path() -> String {
         }
     }
 
-    "./stdlib".to_string()
+    "./libsummit".to_string()
 }

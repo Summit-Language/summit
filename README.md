@@ -55,7 +55,7 @@ cd summit
 cargo build --release
 
 # Build and install the standard library
-cd stdlib
+cd libsummit
 make install-global
 cd ..
 

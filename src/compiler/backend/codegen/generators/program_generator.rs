@@ -338,7 +338,7 @@ impl ProgramGenerator {
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
-    /// - `program`: The program to analyze for stdlib usage
+    /// - `program`: The program to analyze for libsummit usage
     fn collect_stdlib_usage(&mut self, program: &Program) {
         let mut collector = StdlibCollector::new(&mut self.used_stdlib_functions,
                                                  &mut self.symbol_table);

@@ -1,32 +1,52 @@
 CC = gcc
-CFLAGS = -fPIC -O3 -Wall -Wextra -ffreestanding -fno-builtin -fno-stack-protector
-LDFLAGS = -shared -nostdlib
-
-LIB_NAME = libsummit_std.so
-SOURCES = io.c
-OBJECTS = $(SOURCES:.c=.o)
-HEADER = freestanding.h
+CFLAGS = -std=c11 -Wall -Wextra -O2 -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -I./include
+AR = ar
+ARFLAGS = rcs
 
 INSTALL_DIR = ../lib
 INCLUDE_DIR = $(INSTALL_DIR)/include
 EXPORT_FILE = $(INSTALL_DIR)/summit.env
 
-all: $(LIB_NAME)
+SRC_DIR = src
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
 
-$(LIB_NAME): $(OBJECTS)
-	$(CC) $(LDFLAGS) -o $@ $^
+IO_SRCS = $(wildcard $(SRC_DIR)/io/*.c)
+STRING_SRCS = $(wildcard $(SRC_DIR)/string/*.c)
+ALL_SRCS = $(IO_SRCS) $(STRING_SRCS)
 
-%.o: %.c
+IO_OBJS = $(patsubst $(SRC_DIR)/io/%.c,$(OBJ_DIR)/io/%.o,$(IO_SRCS))
+STRING_OBJS = $(patsubst $(SRC_DIR)/string/%.c,$(OBJ_DIR)/string/%.o,$(STRING_SRCS))
+ALL_OBJS = $(IO_OBJS) $(STRING_OBJS)
+
+LIB = $(BUILD_DIR)/libstdlib.a
+
+all: $(LIB)
+
+$(LIB): $(ALL_OBJS) | $(BUILD_DIR)
+	$(AR) $(ARFLAGS) $@ $^
+	@echo "Built library: $@"
+
+$(OBJ_DIR)/io/%.o: $(SRC_DIR)/io/%.c | $(OBJ_DIR)/io
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -f $(OBJECTS) $(LIB_NAME) $(EXPORT_FILE)
+$(OBJ_DIR)/string/%.o: $(SRC_DIR)/string/%.c | $(OBJ_DIR)/string
+	$(CC) $(CFLAGS) -c $< -o $@
 
-install: $(LIB_NAME)
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(OBJ_DIR)/io:
+	mkdir -p $(OBJ_DIR)/io
+
+$(OBJ_DIR)/string:
+	mkdir -p $(OBJ_DIR)/string
+
+install: $(LIB)
 	@mkdir -p $(INSTALL_DIR)
 	@mkdir -p $(INCLUDE_DIR)
-	@cp $(LIB_NAME) $(INSTALL_DIR)/
-	@cp $(HEADER) $(INCLUDE_DIR)/
+	@cp $(LIB) $(INSTALL_DIR)/
+	@cp include/*.h $(INCLUDE_DIR)/
 	@echo "# Summit standard library environment" > $(EXPORT_FILE)
 	@echo "export SUMMIT_STDLIB_PATH=\"$(abspath $(INSTALL_DIR))\"" >> $(EXPORT_FILE)
 	@echo "export LD_LIBRARY_PATH=\"$(abspath $(INSTALL_DIR)):\$$LD_LIBRARY_PATH\"" >> $(EXPORT_FILE)
@@ -66,4 +86,9 @@ uninstall-global:
 	fi
 	@echo "Standard library uninstalled. Restart your shell."
 
-.PHONY: all clean install install-global uninstall-global
+clean:
+	rm -rf $(BUILD_DIR)
+
+rebuild: clean all
+
+.PHONY: all clean rebuild install install-global uninstall-global

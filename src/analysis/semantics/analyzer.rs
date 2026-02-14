@@ -25,6 +25,7 @@ pub struct SemanticAnalyzer {
     pub functions: HashMap<String, Function>,
     pub function_params: HashMap<String, Vec<(String, String)>>,
     pub structs: HashMap<String, StructDef>,
+    pub enums: HashMap<String, EnumDef>,
     pub type_checker: TypeChecker,
     pub global_scope: HashMap<String, String>,
     pub global_mutability: HashMap<String, bool>,
@@ -41,6 +42,7 @@ impl SemanticAnalyzer {
             functions: HashMap::new(),
             function_params: HashMap::new(),
             structs: HashMap::new(),
+            enums: HashMap::new(),
             type_checker: TypeChecker::new(),
             global_scope: HashMap::new(),
             global_mutability: HashMap::new(),
@@ -61,23 +63,42 @@ impl SemanticAnalyzer {
         }
 
         for global in &program.globals {
-            if let GlobalDeclaration::Struct(struct_def) = global {
-                // Check for duplicate struct names
-                if self.structs.contains_key(&struct_def.name) {
-                    return Err(format!("Struct '{}' is defined multiple times", struct_def.name));
-                }
-                
-                let mut field_names = HashSet::new();
-                for field in &struct_def.fields {
-                    if !field_names.insert(&field.name) {
-                        return Err(format!(
-                            "Struct '{}' has duplicate field '{}'",
-                            struct_def.name, field.name
-                        ));
+            match global {
+                GlobalDeclaration::Struct(struct_def) => {
+                    if self.structs.contains_key(&struct_def.name) {
+                        return Err(format!("Struct '{}' is defined multiple times", struct_def.name));
                     }
-                }
 
-                self.structs.insert(struct_def.name.clone(), struct_def.clone());
+                    let mut field_names = HashSet::new();
+                    for field in &struct_def.fields {
+                        if !field_names.insert(&field.name) {
+                            return Err(format!(
+                                "Struct '{}' has duplicate field '{}'",
+                                struct_def.name, field.name
+                            ));
+                        }
+                    }
+
+                    self.structs.insert(struct_def.name.clone(), struct_def.clone());
+                }
+                GlobalDeclaration::Enum(enum_def) => {
+                    if self.enums.contains_key(&enum_def.name) {
+                        return Err(format!("Enum '{}' is defined multiple times", enum_def.name));
+                    }
+
+                    let mut variant_names = HashSet::new();
+                    for variant in &enum_def.variants {
+                        if !variant_names.insert(&variant.name) {
+                            return Err(format!(
+                                "Enum '{}' has duplicate variant '{}'",
+                                enum_def.name, variant.name
+                            ));
+                        }
+                    }
+
+                    self.enums.insert(enum_def.name.clone(), enum_def.clone());
+                }
+                _ => {}
             }
         }
 
@@ -230,6 +251,9 @@ impl SemanticAnalyzer {
             GlobalDeclaration::Struct(_) => {
                 Ok(())
             }
+            GlobalDeclaration::Enum(_) => {
+                Ok(())
+            }
         }
     }
 
@@ -241,7 +265,7 @@ impl SemanticAnalyzer {
     /// - `var_type`: Optional explicit type annotation
     /// - `value`: The initialization expression
     /// - `inferred_type`: The type inferred from the expression
-    /// - `is_mutable`: Whether the variable is mutable (true for var, false for const/comptime)
+    /// - `is_mutable`: Whether the variable is mutable
     ///
     /// # Returns
     /// Ok(()) if validation succeeds, Err with message on failure
@@ -256,7 +280,7 @@ impl SemanticAnalyzer {
             self.type_checker.check_expression_bounds(value, inferred_type)?;
             self.global_scope.insert(name.to_string(), inferred_type.to_string());
         }
-        
+
         self.global_mutability.insert(name.to_string(), is_mutable);
 
         Ok(())

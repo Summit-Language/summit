@@ -50,7 +50,48 @@ impl<'a> ExpressionGenerator<'a> {
             Expression::FieldAccess { object, field } => {
                 self.emit_field_access(object, field);
             }
+            Expression::EnumConstruct { enum_name, variant_name, args } => {
+                self.emit_enum_construct(enum_name, variant_name, args);
+            }
         }
+    }
+
+    /// Emits C code for enum variant construction.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `enum_name`: Name of the enum
+    /// - `variant_name`: Name of the variant
+    /// - `args`: Arguments for the variant (empty for unit variants)
+    fn emit_enum_construct(&mut self, enum_name: &str, variant_name: &str, args: &[Expression]) {
+        self.generator.emitter.emit("(");
+        self.generator.emitter.emit(enum_name);
+        self.generator.emitter.emit("){ .tag = ");
+        self.generator.emitter.emit(enum_name);
+        self.generator.emitter.emit("_");
+        self.generator.emitter.emit(variant_name);
+
+        if !args.is_empty() {
+            self.generator.emitter.emit(", .data.");
+            self.generator.emitter.emit(&variant_name.to_lowercase());
+
+            if args.len() == 1 {
+                self.generator.emitter.emit(" = ");
+                self.generate_expr(&args[0]);
+            } else {
+                self.generator.emitter.emit(" = { ");
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        self.generator.emitter.emit(", ");
+                    }
+                    self.generator.emitter.emit(&format!("._{} = ", i));
+                    self.generate_expr(arg);
+                }
+                self.generator.emitter.emit(" }");
+            }
+        }
+
+        self.generator.emitter.emit(" }");
     }
 
     /// Emits C code for struct initialization.
@@ -60,7 +101,6 @@ impl<'a> ExpressionGenerator<'a> {
     /// - `struct_name`: Name of the struct being initialized
     /// - `fields`: Field initializers
     fn emit_struct_init(&mut self, struct_name: &str, fields: &[StructFieldInit]) {
-        // Emit struct initializer: (StructName){ .field = value, ... }
         self.generator.emitter.emit("(");
         self.generator.emitter.emit(struct_name);
         self.generator.emitter.emit("){ ");
@@ -103,9 +143,11 @@ impl<'a> ExpressionGenerator<'a> {
     /// - `else_expr`: The default expression
     fn emit_when_expr(&mut self, value: &Expression, cases: &[WhenExprCase],
                       else_expr: &Expression) {
-        let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
+        let has_ranges_or_enums = cases.iter().any(|case| {
+            matches!(case.pattern, WhenPattern::Range { .. } | WhenPattern::EnumVariant { .. })
+        });
 
-        if has_ranges {
+        if has_ranges_or_enums {
             self.emit_when_expr_with_ranges(value, cases, else_expr);
         } else {
             self.emit_when_expr_with_ternary(value, cases, else_expr);
@@ -121,6 +163,115 @@ impl<'a> ExpressionGenerator<'a> {
     /// - `else_expr`: The default expression
     fn emit_when_expr_with_ranges(&mut self, value: &Expression, cases: &[WhenExprCase],
                                   else_expr: &Expression) {
+        let has_enum_bindings = cases.iter().any(|case| {
+            if let WhenPattern::EnumVariant { bindings, .. } = &case.pattern {
+                !bindings.is_empty()
+            } else {
+                false
+            }
+        });
+
+        if has_enum_bindings {
+            self.emit_when_expr_with_statement_expr(value, cases, else_expr);
+        } else {
+            self.emit_when_expr_with_simple_ternary(value, cases, else_expr);
+        }
+    }
+
+    /// Emits C code for when expression using statement expressions to handle bindings.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_expr`: The default expression
+    fn emit_when_expr_with_statement_expr(&mut self, value: &Expression, cases: &[WhenExprCase],
+                                          else_expr: &Expression) {
+        self.generator.emitter.emit("({ ");
+
+        self.generator.emitter.emit("typeof(");
+        self.generate_expr(value);
+        self.generator.emitter.emit(") __when_value = ");
+        self.generate_expr(value);
+        self.generator.emitter.emit("; ");
+
+        for (i, case) in cases.iter().enumerate() {
+            if i == 0 {
+                self.generator.emitter.emit("if (");
+            } else {
+                self.generator.emitter.emit(" else if (");
+            }
+
+            match &case.pattern {
+                WhenPattern::Single(pattern_expr) => {
+                    self.generator.emitter.emit("__when_value == (");
+                    self.generate_expr(pattern_expr);
+                    self.generator.emitter.emit(")");
+                }
+                WhenPattern::Range { start, end, inclusive } => {
+                    self.generator.emitter.emit("__when_value >= (");
+                    self.generate_expr(start);
+                    self.generator.emitter.emit(") && __when_value");
+
+                    if *inclusive {
+                        self.generator.emitter.emit(" <= (");
+                    } else {
+                        self.generator.emitter.emit(" < (");
+                    }
+
+                    self.generate_expr(end);
+                    self.generator.emitter.emit(")");
+                }
+                WhenPattern::EnumVariant { enum_name, variant_name, bindings } => {
+                    self.generator.emitter.emit("__when_value.tag == ");
+                    self.generator.emitter.emit(enum_name);
+                    self.generator.emitter.emit("_");
+                    self.generator.emitter.emit(variant_name);
+
+                    if !bindings.is_empty() {
+                        self.generator.emitter.emit(") { ");
+
+                        for (j, binding_name) in bindings.iter().enumerate() {
+                            self.generator.emitter.emit("auto ");
+                            self.generator.emitter.emit(binding_name);
+                            self.generator.emitter.emit(" = __when_value.data.");
+                            self.generator.emitter.emit(&variant_name.to_lowercase());
+
+                            if bindings.len() == 1 {
+                                self.generator.emitter.emit("; ");
+                            } else {
+                                self.generator.emitter.emit(&format!("._{}", j));
+                                self.generator.emitter.emit("; ");
+                            }
+                        }
+
+                        self.generator.emitter.emit("(");
+                        self.generate_expr(&case.result);
+                        self.generator.emitter.emit("); }");
+                        continue;
+                    }
+                }
+            }
+
+            self.generator.emitter.emit(") { (");
+            self.generate_expr(&case.result);
+            self.generator.emitter.emit("); }");
+        }
+
+        self.generator.emitter.emit(" else { (");
+        self.generate_expr(else_expr);
+        self.generator.emitter.emit("); } })");
+    }
+
+    /// Emits C code for when expression using simple nested ternary operators.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value`: The value to match against
+    /// - `cases`: The when cases
+    /// - `else_expr`: The default expression
+    fn emit_when_expr_with_simple_ternary(&mut self, value: &Expression, cases: &[WhenExprCase],
+                                          else_expr: &Expression) {
         self.generator.emitter.emit("(");
 
         for (i, case) in cases.iter().enumerate() {
@@ -155,6 +306,16 @@ impl<'a> ExpressionGenerator<'a> {
 
                     self.generate_expr(end);
                     self.generator.emitter.emit(")");
+                }
+                WhenPattern::EnumVariant { enum_name, variant_name, bindings } => {
+                    self.generator.emitter.emit("(");
+                    self.generate_expr(value);
+                    self.generator.emitter.emit(").tag == ");
+                    self.generator.emitter.emit(enum_name);
+                    self.generator.emitter.emit("_");
+                    self.generator.emitter.emit(variant_name);
+
+                    let _ = bindings;
                 }
             }
 

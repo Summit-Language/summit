@@ -59,6 +59,9 @@ impl<'a> CompileTimeChecker<'a> {
                             self.is_compile_time_constant(start) &&
                                 self.is_compile_time_constant(end)
                         }
+                        WhenPattern::EnumVariant { .. } => {
+                            true
+                        }
                     };
 
                     if !pattern_is_constant {
@@ -84,6 +87,10 @@ impl<'a> CompileTimeChecker<'a> {
                 self.is_compile_time_constant(object)
             }
             Expression::Call { .. } => false,
+            Expression::EnumConstruct { args, .. } => {
+                // Enum construction is a compile-time constant if all args are
+                args.iter().all(|arg| self.is_compile_time_constant(arg))
+            }
         }
     }
 
@@ -125,6 +132,9 @@ impl<'a> CompileTimeChecker<'a> {
                             self.is_compile_time_evaluable(start) &&
                                 self.is_compile_time_evaluable(end)
                         }
+                        WhenPattern::EnumVariant { .. } => {
+                            true
+                        }
                     };
 
                     if !pattern_is_evaluable {
@@ -150,6 +160,9 @@ impl<'a> CompileTimeChecker<'a> {
                 self.is_compile_time_evaluable(object)
             }
             Expression::Call { .. } => false,
+            Expression::EnumConstruct { args, .. } => {
+                args.iter().all(|arg| self.is_compile_time_evaluable(arg))
+            }
         }
     }
 }

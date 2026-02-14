@@ -34,7 +34,6 @@ impl<'a> FunctionAnalyzer<'a> {
         let mut scope = self.analyzer.global_scope.clone();
         let mut mutability = self.analyzer.global_mutability.clone();
 
-        // Add function parameters to scope - parameters are immutable
         for param in &func.params {
             scope.insert(param.name.clone(), param.param_type.clone());
             mutability.insert(param.name.clone(), false);

@@ -4,6 +4,7 @@ mod statements;
 mod expressions;
 mod operators;
 mod structs;
+mod enums;
 
 pub use program::Program;
 pub use declarations::{GlobalDeclaration, Import, Function, Parameter};
@@ -16,3 +17,4 @@ pub use expressions::Expression;
 pub use expressions::WhenExprCase;
 pub use operators::{BinaryOp, UnaryOp};
 pub use structs::{StructDef, StructField, StructFieldInit};
+pub use enums::{EnumDef, EnumVariant};

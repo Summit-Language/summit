@@ -165,6 +165,7 @@ fn tokenize_identifier(chars: &[char], i: &mut usize) -> Token {
         "when" => Token::When,
         "expect" => Token::Expect,
         "struct" => Token::Struct,
+        "enum" => Token::Enum,
         "is" => Token::Is,
         "fallthrough" => Token::Fallthrough,
         "next" => Token::Next,

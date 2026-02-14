@@ -47,11 +47,11 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decl(&mut self, global: &GlobalDeclaration) {
         match global {
-            GlobalDeclaration::Var { name, var_type, 
+            GlobalDeclaration::Var { name, var_type,
                 value } |
-            GlobalDeclaration::Const { name, var_type, 
+            GlobalDeclaration::Const { name, var_type,
                 value } |
-            GlobalDeclaration::Comptime { name, var_type, 
+            GlobalDeclaration::Comptime { name, var_type,
                 value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
@@ -77,6 +77,7 @@ impl<'a> GlobalGenerator<'a> {
                                                 summit_type);
             }
             GlobalDeclaration::Struct(_) => {}
+            GlobalDeclaration::Enum(_) => {}
         }
     }
 
@@ -87,7 +88,7 @@ impl<'a> GlobalGenerator<'a> {
     /// - `global`: The global declaration
     fn emit_global_decls_only(&mut self, global: &GlobalDeclaration) {
         match global {
-            GlobalDeclaration::Var { name, var_type, 
+            GlobalDeclaration::Var { name, var_type,
                 value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
@@ -99,7 +100,7 @@ impl<'a> GlobalGenerator<'a> {
                 self.generator.emitter.emit(name);
                 self.generator.emitter.emit(";\n");
             }
-            GlobalDeclaration::Const { name, var_type, 
+            GlobalDeclaration::Const { name, var_type,
                 value } => {
                 let summit_type = TypeResolver::resolve_type(
                     var_type, value, |v| self.generator.infer_expr_type(v));
@@ -118,6 +119,7 @@ impl<'a> GlobalGenerator<'a> {
             }
             GlobalDeclaration::Comptime { .. } => {}
             GlobalDeclaration::Struct(_) => {}
+            GlobalDeclaration::Enum(_) => {}
         }
     }
 
@@ -150,6 +152,7 @@ impl<'a> GlobalGenerator<'a> {
             }
             GlobalDeclaration::Comptime { .. } => {}
             GlobalDeclaration::Struct(_) => {}
+            GlobalDeclaration::Enum(_) => {}
         }
     }
 }

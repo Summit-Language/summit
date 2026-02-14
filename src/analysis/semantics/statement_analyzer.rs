@@ -51,6 +51,9 @@ impl<'a> StatementAnalyzer<'a> {
                                                                        &self.analyzer.structs)?;
 
                 for case in cases {
+                    let mut case_scope = scope.clone();
+                    let mut case_mutability = mutability.clone();
+
                     match &case.pattern {
                         WhenPattern::Single(pattern_expr) => {
                             expr_analyzer.analyze_expr(pattern_expr, scope)?;
@@ -93,13 +96,57 @@ impl<'a> StatementAnalyzer<'a> {
                                 ));
                             }
                         }
+                        WhenPattern::EnumVariant { enum_name, variant_name,
+                            bindings } => {
+                            if value_type != *enum_name {
+                                return Err(format!(
+                                    "When case enum pattern '{}::{}' expects enum type '{}', but value has type '{}'",
+                                    enum_name, variant_name, enum_name, value_type
+                                ));
+                            }
+
+                            if let Some(enum_def) = self.analyzer.enums.get(enum_name) {
+                                if let Some(variant) = enum_def.variants.iter()
+                                    .find(|v| &v.name == variant_name) {
+                                    let payload_count = variant.payload.as_ref()
+                                        .map(|p| p.len()).unwrap_or(0);
+                                    if bindings.len() != payload_count {
+                                        return Err(format!(
+                                            "Enum variant '{}::{}' expects {} bindings, but {} were provided",
+                                            enum_name, variant_name, payload_count, bindings.len()
+                                        ));
+                                    }
+
+                                    if let Some(payload_types) = &variant.payload {
+                                        for (binding_name,
+                                            payload_type) in bindings.iter()
+                                            .zip(payload_types.iter()) {
+                                            case_scope.insert(binding_name.clone(),
+                                                              payload_type.clone());
+                                            case_mutability.insert(binding_name.clone(),
+                                                                   false);
+                                        }
+                                    }
+                                } else {
+                                    return Err(format!(
+                                        "Enum variant '{}::{}' not found in enum '{}'",
+                                        enum_name, variant_name, enum_name
+                                    ));
+                                }
+                            } else {
+                                for binding_name in bindings {
+                                    case_scope.insert(binding_name.clone(), "i32"
+                                        .to_string());
+                                    case_mutability.insert(binding_name.clone(), false);
+                                }
+                            }
+                        }
                     }
 
-                    let mut case_scope = scope.clone();
-                    let mut case_mutability = mutability.clone();
                     for stmt in &case.body {
                         self.analyze_stmt_with_return_type(stmt, &mut case_scope, func_name,
-                                                           expected_return_type, &mut case_mutability)?;
+                                                           expected_return_type,
+                                                           &mut case_mutability)?;
                     }
                 }
 
@@ -108,30 +155,35 @@ impl<'a> StatementAnalyzer<'a> {
                     let mut else_mutability = mutability.clone();
                     for stmt in else_stmts {
                         self.analyze_stmt_with_return_type(stmt, &mut else_scope, func_name,
-                                                           expected_return_type, &mut else_mutability)?;
+                                                           expected_return_type,
+                                                           &mut else_mutability)?;
                     }
                 }
 
                 Ok(())
             }
-            Statement::Expect { condition, pattern, else_block } => {
+            Statement::Expect { condition, pattern,
+                else_block } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(condition, scope)?;
 
                 if let Some(p) = pattern {
-                    let condition_type = self.analyzer.type_checker.infer_type(condition, scope,
-                                                                               &self.analyzer.functions,
-                                                                               &self.analyzer.structs)?;
+                    let condition_type =
+                        self.analyzer.type_checker.infer_type(condition, scope,
+                                                              &self.analyzer.functions,
+                                                              &self.analyzer.structs)?;
 
                     match p {
                         ExpectPattern::Single(pattern_expr) => {
                             expr_analyzer.analyze_expr(pattern_expr, scope)?;
-                            let pattern_type = self.analyzer.type_checker.infer_type(pattern_expr,
-                                                                                     scope,
-                                                                                     &self.analyzer.functions,
-                                                                                     &self.analyzer.structs)?;
+                            let pattern_type = self.analyzer.type_checker
+                                .infer_type(pattern_expr,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &pattern_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &pattern_type) {
                                 return Err(format!(
                                     "Expect pattern has incompatible type '{}', expected '{}'",
                                     pattern_type, condition_type
@@ -142,23 +194,27 @@ impl<'a> StatementAnalyzer<'a> {
                             expr_analyzer.analyze_expr(start, scope)?;
                             expr_analyzer.analyze_expr(end, scope)?;
 
-                            let start_type = self.analyzer.type_checker.infer_type(start,
-                                                                                   scope,
-                                                                                   &self.analyzer.functions,
-                                                                                   &self.analyzer.structs)?;
-                            let end_type = self.analyzer.type_checker.infer_type(end,
-                                                                                 scope,
-                                                                                 &self.analyzer.functions,
-                                                                                 &self.analyzer.structs)?;
+                            let start_type = self.analyzer.type_checker
+                                .infer_type(start,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
+                            let end_type = self.analyzer.type_checker
+                                .infer_type(end,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &start_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &start_type) {
                                 return Err(format!(
                                     "Expect range start has incompatible type '{}', expected '{}'",
                                     start_type, condition_type
                                 ));
                             }
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &end_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &end_type) {
                                 return Err(format!(
                                     "Expect range end has incompatible type '{}', expected '{}'",
                                     end_type, condition_type
@@ -178,7 +234,8 @@ impl<'a> StatementAnalyzer<'a> {
                 Ok(())
             }
             Statement::For { variable, start, end,
-                step, filter, body, .. } => {
+                step, filter,
+                body, .. } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(start, scope)?;
                 expr_analyzer.analyze_expr(end, scope)?;
@@ -199,7 +256,7 @@ impl<'a> StatementAnalyzer<'a> {
                 let loop_var_type = self.analyzer.type_checker.wider_type(&start_type,
                                                                           &end_type);
                 body_scope.insert(variable.clone(), loop_var_type);
-                body_mutability.insert(variable.clone(), false); // Loop variable is immutable
+                body_mutability.insert(variable.clone(), false);
 
                 if let Some(filter_expr) = filter {
                     expr_analyzer.analyze_expr(filter_expr, &body_scope)?;
@@ -302,7 +359,8 @@ impl<'a> StatementAnalyzer<'a> {
                     let mut elseif_mutability = mutability.clone();
                     for stmt in &elseif_block.body {
                         self.analyze_stmt_with_return_type(stmt, &mut elseif_scope, func_name,
-                                                           expected_return_type, &mut elseif_mutability)?;
+                                                           expected_return_type,
+                                                           &mut elseif_mutability)?;
                     }
                 }
 
@@ -311,7 +369,8 @@ impl<'a> StatementAnalyzer<'a> {
                     let mut else_mutability = mutability.clone();
                     for stmt in else_stmts {
                         self.analyze_stmt_with_return_type(stmt, &mut else_scope, func_name,
-                                                           expected_return_type, &mut else_mutability)?;
+                                                           expected_return_type,
+                                                           &mut else_mutability)?;
                     }
                 }
                 Ok(())
@@ -366,13 +425,17 @@ impl<'a> StatementAnalyzer<'a> {
                                                                        &self.analyzer.structs)?;
 
                 for case in cases {
+                    let mut case_scope = scope.clone();
+                    let mut case_mutability = mutability.clone();
+
                     match &case.pattern {
                         WhenPattern::Single(pattern_expr) => {
                             expr_analyzer.analyze_expr(pattern_expr, scope)?;
-                            let pattern_type = self.analyzer.type_checker.infer_type(pattern_expr,
-                                                                                     scope,
-                                                                                     &self.analyzer.functions,
-                                                                                     &self.analyzer.structs)?;
+                            let pattern_type =
+                                self.analyzer.type_checker.infer_type(pattern_expr,
+                                                                      scope,
+                                                                      &self.analyzer.functions,
+                                                                      &self.analyzer.structs)?;
 
                             if !self.analyzer.type_checker.types_compatible(&value_type, &pattern_type) {
                                 return Err(format!(
@@ -385,33 +448,80 @@ impl<'a> StatementAnalyzer<'a> {
                             expr_analyzer.analyze_expr(start, scope)?;
                             expr_analyzer.analyze_expr(end, scope)?;
 
-                            let start_type = self.analyzer.type_checker.infer_type(start,
-                                                                                   scope,
-                                                                                   &self.analyzer.functions,
-                                                                                   &self.analyzer.structs)?;
-                            let end_type = self.analyzer.type_checker.infer_type(end,
-                                                                                 scope,
-                                                                                 &self.analyzer.functions,
-                                                                                 &self.analyzer.structs)?;
+                            let start_type = self.analyzer.type_checker
+                                .infer_type(start,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
+                            let end_type = self.analyzer.type_checker
+                                .infer_type(end,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
 
-                            if !self.analyzer.type_checker.types_compatible(&value_type, &start_type) {
+                            if !self.analyzer.type_checker.types_compatible(&value_type,
+                                                                            &start_type) {
                                 return Err(format!(
                                     "When case range start has incompatible type '{}', expected '{}'",
                                     start_type, value_type
                                 ));
                             }
 
-                            if !self.analyzer.type_checker.types_compatible(&value_type, &end_type) {
+                            if !self.analyzer.type_checker.types_compatible(&value_type,
+                                                                            &end_type) {
                                 return Err(format!(
                                     "When case range end has incompatible type '{}', expected '{}'",
                                     end_type, value_type
                                 ));
                             }
                         }
+                        WhenPattern::EnumVariant { enum_name, variant_name,
+                            bindings } => {
+                            if value_type != *enum_name {
+                                return Err(format!(
+                                    "When case enum pattern '{}::{}' expects enum type '{}', but value has type '{}'",
+                                    enum_name, variant_name, enum_name, value_type
+                                ));
+                            }
+
+                            if let Some(enum_def) = self.analyzer.enums.get(enum_name) {
+                                if let Some(variant) = enum_def.variants.iter()
+                                    .find(|v| &v.name == variant_name) {
+                                    let payload_count = variant.payload.as_ref()
+                                        .map(|p| p.len()).unwrap_or(0);
+                                    if bindings.len() != payload_count {
+                                        return Err(format!(
+                                            "Enum variant '{}::{}' expects {} bindings, but {} were provided",
+                                            enum_name, variant_name, payload_count, bindings.len()
+                                        ));
+                                    }
+
+                                    if let Some(payload_types) = &variant.payload {
+                                        for (binding_name,
+                                            payload_type) in bindings.iter()
+                                            .zip(payload_types.iter()) {
+                                            case_scope.insert(binding_name.clone(),
+                                                              payload_type.clone());
+                                            case_mutability.insert(binding_name.clone(),
+                                                                   false);
+                                        }
+                                    }
+                                } else {
+                                    return Err(format!(
+                                        "Enum variant '{}::{}' not found in enum '{}'",
+                                        enum_name, variant_name, enum_name
+                                    ));
+                                }
+                            } else {
+                                for binding_name in bindings {
+                                    case_scope.insert(binding_name.clone(), "i32"
+                                        .to_string());
+                                    case_mutability.insert(binding_name.clone(), false);
+                                }
+                            }
+                        }
                     }
 
-                    let mut case_scope = scope.clone();
-                    let mut case_mutability = mutability.clone();
                     for stmt in &case.body {
                         self.analyze_stmt(stmt, &mut case_scope, &mut case_mutability)?;
                     }
@@ -427,24 +537,28 @@ impl<'a> StatementAnalyzer<'a> {
 
                 Ok(())
             }
-            Statement::Expect { condition, pattern, else_block } => {
+            Statement::Expect { condition, pattern,
+                else_block } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(condition, scope)?;
 
                 if let Some(p) = pattern {
-                    let condition_type = self.analyzer.type_checker.infer_type(condition, scope,
-                                                                               &self.analyzer.functions,
-                                                                               &self.analyzer.structs)?;
+                    let condition_type = self.analyzer.type_checker
+                        .infer_type(condition, scope,
+                                    &self.analyzer.functions,
+                                    &self.analyzer.structs)?;
 
                     match p {
                         ExpectPattern::Single(pattern_expr) => {
                             expr_analyzer.analyze_expr(pattern_expr, scope)?;
-                            let pattern_type = self.analyzer.type_checker.infer_type(pattern_expr,
-                                                                                     scope,
-                                                                                     &self.analyzer.functions,
-                                                                                     &self.analyzer.structs)?;
+                            let pattern_type = self.analyzer.type_checker
+                                .infer_type(pattern_expr,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &pattern_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &pattern_type) {
                                 return Err(format!(
                                     "Expect pattern has incompatible type '{}', expected '{}'",
                                     pattern_type, condition_type
@@ -455,23 +569,27 @@ impl<'a> StatementAnalyzer<'a> {
                             expr_analyzer.analyze_expr(start, scope)?;
                             expr_analyzer.analyze_expr(end, scope)?;
 
-                            let start_type = self.analyzer.type_checker.infer_type(start,
-                                                                                   scope,
-                                                                                   &self.analyzer.functions,
-                                                                                   &self.analyzer.structs)?;
-                            let end_type = self.analyzer.type_checker.infer_type(end,
-                                                                                 scope,
-                                                                                 &self.analyzer.functions,
-                                                                                 &self.analyzer.structs)?;
+                            let start_type = self.analyzer.type_checker
+                                .infer_type(start,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
+                            let end_type = self.analyzer.type_checker
+                                .infer_type(end,
+                                            scope,
+                                            &self.analyzer.functions,
+                                            &self.analyzer.structs)?;
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &start_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &start_type) {
                                 return Err(format!(
                                     "Expect range start has incompatible type '{}', expected '{}'",
                                     start_type, condition_type
                                 ));
                             }
 
-                            if !self.analyzer.type_checker.types_compatible(&condition_type, &end_type) {
+                            if !self.analyzer.type_checker.types_compatible(&condition_type,
+                                                                            &end_type) {
                                 return Err(format!(
                                     "Expect range end has incompatible type '{}', expected '{}'",
                                     end_type, condition_type
@@ -490,7 +608,8 @@ impl<'a> StatementAnalyzer<'a> {
                 Ok(())
             }
             Statement::For { variable, start, end,
-                step, filter, body, .. } => {
+                step, filter,
+                body, .. } => {
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(start, scope)?;
                 expr_analyzer.analyze_expr(end, scope)?;
@@ -550,7 +669,8 @@ impl<'a> StatementAnalyzer<'a> {
                                                                           &self.analyzer.structs)?;
 
                 if let Some(explicit_type) = var_type {
-                    if let Expression::Call { path, type_args, .. } = value {
+                    if let Expression::Call { path,
+                        type_args, .. } = value {
                         if IoPathMatcher::is_read(path) {
                             if let Some(types) = type_args {
                                 if types.len() == 1 {
@@ -585,7 +705,8 @@ impl<'a> StatementAnalyzer<'a> {
                                                                           &self.analyzer.structs)?;
 
                 if let Some(explicit_type) = var_type {
-                    if let Expression::Call { path, type_args, .. } = value {
+                    if let Expression::Call { path,
+                        type_args, .. } = value {
                         if IoPathMatcher::is_read(path) {
                             if let Some(types) = type_args {
                                 if types.len() == 1 {
@@ -612,7 +733,8 @@ impl<'a> StatementAnalyzer<'a> {
                 mutability.insert(name.clone(), false);
                 Ok(())
             }
-            Statement::Comptime { name, var_type, value } => {
+            Statement::Comptime { name, var_type,
+                value } => {
                 let compile_time_checker = CompileTimeChecker::new(self.analyzer);
                 if !compile_time_checker.is_compile_time_evaluable(value) {
                     return Err(format!("Comptime '{}' must be evaluable at compile time", name));
@@ -623,7 +745,8 @@ impl<'a> StatementAnalyzer<'a> {
                 let inferred_type = self.analyzer.type_checker
                     .infer_type(value, scope, &self.analyzer.functions, &self.analyzer.structs)?;
                 if let Some(explicit_type) = var_type {
-                    if let Expression::Call { path, type_args, .. } = value {
+                    if let Expression::Call { path,
+                        type_args, .. } = value {
                         if IoPathMatcher::is_read(path) {
                             if let Some(types) = type_args {
                                 if types.len() == 1 {
@@ -647,7 +770,7 @@ impl<'a> StatementAnalyzer<'a> {
                     self.analyzer.type_checker.check_expression_bounds(value, &inferred_type)?;
                     scope.insert(name.clone(), inferred_type.clone());
                 }
-                mutability.insert(name.clone(), false); // comptime is immutable
+                mutability.insert(name.clone(), false);
                 Ok(())
             }
             Statement::Assign { name, value } => {
@@ -693,28 +816,31 @@ impl<'a> StatementAnalyzer<'a> {
                         field, object
                     ));
                 }
-                
+
                 let mut current_type = scope.get(object).unwrap().clone();
                 let field_parts: Vec<&str> = field.split('.').collect();
 
                 for field_part in &field_parts[..field_parts.len() - 1] {
                     // Verify current type is a struct
                     if !self.analyzer.structs.contains_key(&current_type) {
-                        return Err(format!("Cannot access field '{}' on non-struct type '{}'", field_part, current_type));
+                        return Err(format!("Cannot access field '{}' on non-struct type '{}'",
+                                           field_part, current_type));
                     }
 
                     let struct_def = &self.analyzer.structs[&current_type];
-                    
+
                     current_type = struct_def.fields.iter()
                         .find(|f| f.name == *field_part)
                         .map(|f| f.field_type.clone())
-                        .ok_or_else(|| format!("Field '{}' not found in struct '{}'", field_part, current_type))?;
+                        .ok_or_else(|| format!("Field '{}' not found in struct '{}'",
+                                               field_part, current_type))?;
                 }
-                
+
                 let last_field = field_parts[field_parts.len() - 1];
 
                 if !self.analyzer.structs.contains_key(&current_type) {
-                    return Err(format!("Cannot access field '{}' on non-struct type '{}'", last_field, current_type));
+                    return Err(format!("Cannot access field '{}' on non-struct type '{}'",
+                                       last_field, current_type));
                 }
 
                 let struct_def = &self.analyzer.structs[&current_type];
@@ -722,7 +848,8 @@ impl<'a> StatementAnalyzer<'a> {
                 let field_type = struct_def.fields.iter()
                     .find(|f| f.name == last_field)
                     .map(|f| f.field_type.clone())
-                    .ok_or_else(|| format!("Field '{}' not found in struct '{}'", last_field, current_type))?;
+                    .ok_or_else(|| format!("Field '{}' not found in struct '{}'",
+                                           last_field, current_type))?;
 
                 let expr_analyzer = ExpressionAnalyzer::new(self.analyzer);
                 expr_analyzer.analyze_expr(value, scope)?;
@@ -730,7 +857,8 @@ impl<'a> StatementAnalyzer<'a> {
                 let value_type = self.analyzer.type_checker.infer_type(value, scope,
                                                                        &self.analyzer.functions,
                                                                        &self.analyzer.structs)?;
-                self.analyzer.type_checker.check_type_compatibility(&field_type, &value_type, value)?;
+                self.analyzer.type_checker.check_type_compatibility(&field_type, &value_type,
+                                                                    value)?;
 
                 Ok(())
             }

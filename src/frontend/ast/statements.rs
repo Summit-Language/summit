@@ -122,11 +122,19 @@ pub struct WhenCase {
 pub enum WhenPattern {
     /// Single value pattern
     Single(Expression),
+
     /// Range pattern
     Range {
         start: Expression,
         end: Expression,
         inclusive: bool,
+    },
+
+    /// Enum variant pattern
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        bindings: Vec<String>,
     },
 }
 

@@ -24,6 +24,9 @@ pub struct ProgramGenerator {
     /// Maps struct names to their definitions
     pub struct_defs: HashMap<String, StructDef>,
 
+    /// Maps enum names to their definitions
+    pub enum_defs: HashMap<String, EnumDef>,
+
     /// Tracks which standard library functions are used
     pub used_stdlib_functions: HashSet<String>,
 
@@ -49,6 +52,7 @@ impl ProgramGenerator {
             mutability_table: HashMap::new(),
             function_signatures: HashMap::new(),
             struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
             used_stdlib_functions: HashSet::new(),
             type_mapper: TypeMapper::new(),
             compile_time_checker: CompileTimeChecker::new(),
@@ -72,10 +76,19 @@ impl ProgramGenerator {
     /// The generated C code as a string
     pub fn generate_program(&mut self, program: &Program) -> String {
         let mut structs = Vec::new();
+        let mut enums = Vec::new();
+
         for global in &program.globals {
-            if let GlobalDeclaration::Struct(struct_def) = global {
-                self.struct_defs.insert(struct_def.name.clone(), struct_def.clone());
-                structs.push(struct_def.clone());
+            match global {
+                GlobalDeclaration::Struct(struct_def) => {
+                    self.struct_defs.insert(struct_def.name.clone(), struct_def.clone());
+                    structs.push(struct_def.clone());
+                }
+                GlobalDeclaration::Enum(enum_def) => {
+                    self.enum_defs.insert(enum_def.name.clone(), enum_def.clone());
+                    enums.push(enum_def.clone());
+                }
+                _ => {}
             }
         }
 
@@ -95,6 +108,7 @@ impl ProgramGenerator {
             self.emit_stdlib_decls();
         }
 
+        self.emit_enum_defs(&enums);
         self.emit_struct_defs(&structs);
 
         let mut global_gen = GlobalGenerator::new(self);
@@ -158,6 +172,75 @@ impl ProgramGenerator {
         }
     }
 
+    /// Emits C enum definitions as tagged unions.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `enums`: The enum definitions to emit
+    fn emit_enum_defs(&mut self, enums: &[EnumDef]) {
+        if enums.is_empty() {
+            return;
+        }
+
+        for enum_def in enums {
+            // Emit tag enum
+            self.emitter.emit(&format!("typedef enum {{\n"));
+            self.emitter.indent_level += 1;
+
+            for variant in &enum_def.variants {
+                self.emitter.indent();
+                self.emitter.emit(&format!("{}_{},\n", enum_def.name, variant.name));
+            }
+
+            self.emitter.indent_level -= 1;
+            self.emitter.emit(&format!("}} {}_Tag;\n\n", enum_def.name));
+
+            // Emit the tagged union
+            self.emitter.emit(&format!("typedef struct {{\n"));
+            self.emitter.indent_level += 1;
+
+            self.emitter.indent();
+            self.emitter.emit(&format!("{}_Tag tag;\n", enum_def.name));
+
+            // If any variants have payloads, emit a union
+            let has_payloads = enum_def.variants.iter().any(|v| v.payload.is_some());
+            if has_payloads {
+                self.emitter.indent();
+                self.emitter.emit("union {\n");
+                self.emitter.indent_level += 1;
+
+                for variant in &enum_def.variants {
+                    if let Some(payload_types) = &variant.payload {
+                        self.emitter.indent();
+                        if payload_types.len() == 1 {
+                            let c_type = self.map_type(&payload_types[0]);
+                            self.emitter.emit(&format!("{} {};\n", c_type, variant.name.to_lowercase()));
+                        } else {
+                            self.emitter.emit(&format!("struct {{\n"));
+                            self.emitter.indent_level += 1;
+                            for (i, payload_type) in payload_types.iter().enumerate() {
+                                self.emitter.indent();
+                                let c_type = self.map_type(payload_type);
+                                self.emitter.emit(&format!("{} _{};\n", c_type, i));
+                            }
+                            self.emitter.indent_level -= 1;
+                            self.emitter.indent();
+                            self.emitter.emit(&format!("}} {};\n", variant.name.to_lowercase()));
+                        }
+                    }
+                }
+
+                self.emitter.indent_level -= 1;
+                self.emitter.indent();
+                self.emitter.emit("} data;\n");
+            }
+
+            self.emitter.indent_level -= 1;
+            self.emitter.emit(&format!("}} {};\n", enum_def.name));
+            self.emitter.emit_line("");
+        }
+    }
+
     /// Identifies which globals require runtime initialization.
     ///
     /// # Parameters
@@ -182,6 +265,7 @@ impl ProgramGenerator {
                 }
                 GlobalDeclaration::Comptime { .. } => {}
                 GlobalDeclaration::Struct(_) => {}
+                GlobalDeclaration::Enum(_) => {}
             }
         }
 
@@ -243,6 +327,7 @@ impl ProgramGenerator {
                     }
                 }
                 GlobalDeclaration::Struct(_) => {}
+                GlobalDeclaration::Enum(_) => {}
             }
         }
 
@@ -276,6 +361,7 @@ impl ProgramGenerator {
                     collector.collect_from_expr(value);
                 }
                 GlobalDeclaration::Struct(_) => {}
+                GlobalDeclaration::Enum(_) => {}
             }
         }
     }
@@ -463,6 +549,9 @@ impl ProgramGenerator {
     /// The equivalent C type as a string
     pub fn map_type(&self, type_name: &str) -> String {
         if self.struct_defs.contains_key(type_name) {
+            return type_name.to_string();
+        }
+        if self.enum_defs.contains_key(type_name) {
             return type_name.to_string();
         }
         self.type_mapper.map_type(type_name).to_string()

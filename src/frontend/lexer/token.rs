@@ -22,6 +22,7 @@ pub enum Token {
     When,
     Expect,
     Struct,
+    Enum,
     Is,
     Fallthrough,
     In,

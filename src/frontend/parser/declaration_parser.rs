@@ -16,7 +16,7 @@ impl<'a> DeclarationParser<'a> {
         DeclarationParser { parser }
     }
 
-    /// Parses a type, which can be either a built-in type or a struct identifier.
+    /// Parses a type, which can be either a built-in type or a struct/enum identifier.
     ///
     /// # Returns
     /// The type name as a String, or an error message.
@@ -28,12 +28,11 @@ impl<'a> DeclarationParser<'a> {
                 Ok(typ)
             }
             Token::Identifier(id) => {
-                // Allow struct names as types
                 let typ = id.clone();
                 self.parser.advance();
                 Ok(typ)
             }
-            _ => Err("Expected type or struct name".to_string())
+            _ => Err("Expected type or struct/enum name".to_string())
         }
     }
 
@@ -47,6 +46,79 @@ impl<'a> DeclarationParser<'a> {
         let mut struct_parser = StructParser::new(self.parser);
         let struct_def = struct_parser.parse_struct()?;
         Ok(GlobalDeclaration::Struct(struct_def))
+    }
+
+    /// Parses an enum definition.
+    ///
+    /// Format: `enum Name { Variant1(type1), Variant2, Variant3(type1, type2) }`
+    ///
+    /// # Returns
+    /// A `GlobalDeclaration::Enum` if successful, or an error message.
+    pub fn parse_enum(&mut self) -> Result<GlobalDeclaration, String> {
+        self.parser.expect(Token::Enum)?;
+
+        let name = if let Token::Identifier(n) = self.parser.current() {
+            let name = n.clone();
+            self.parser.advance();
+            name
+        } else {
+            return Err("Expected enum name".to_string());
+        };
+
+        self.parser.expect(Token::LeftBrace)?;
+
+        let mut variants = Vec::new();
+
+        while self.parser.current() != &Token::RightBrace {
+            if let Token::Identifier(variant_name) = self.parser.current() {
+                let variant_name = variant_name.clone();
+                self.parser.advance();
+
+                let payload = if self.parser.current() == &Token::LeftParen {
+                    self.parser.advance();
+
+                    let mut types = Vec::new();
+
+                    if self.parser.current() != &Token::RightParen {
+                        loop {
+                            types.push(self.parse_type()?);
+
+                            if self.parser.current() == &Token::Comma {
+                                self.parser.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    self.parser.expect(Token::RightParen)?;
+                    Some(types)
+                } else {
+                    None
+                };
+
+                variants.push(EnumVariant {
+                    name: variant_name,
+                    payload,
+                });
+
+                if self.parser.current() == &Token::Comma {
+                    self.parser.advance();
+                } else if self.parser.current() != &Token::RightBrace {
+                    return Err("Expected ',' or '}' after enum variant".to_string());
+                }
+            } else {
+                return Err("Expected variant name".to_string());
+            }
+        }
+
+        self.parser.expect(Token::RightBrace)?;
+
+        if variants.is_empty() {
+            return Err("Enum must have at least one variant".to_string());
+        }
+
+        Ok(GlobalDeclaration::Enum(EnumDef { name, variants }))
     }
 
     /// Parses a global variable declaration.
@@ -204,7 +276,7 @@ impl<'a> DeclarationParser<'a> {
     pub fn parse_func(&mut self) -> Result<Function, String> {
         let abi = if matches!(self.parser.current(), Token::Extern) {
             self.parser.advance();
-            
+
             if let Token::StringLiteral(abi_name) = self.parser.current() {
                 let abi = abi_name.clone();
                 self.parser.advance();

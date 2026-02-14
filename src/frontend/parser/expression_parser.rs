@@ -18,7 +18,6 @@ impl<'a> ExpressionParser<'a> {
         self.parse_ternary()
     }
 
-
     /// Parses ternary expressions.
     ///
     /// Format: `condition ? then_expr : else_expr`
@@ -60,7 +59,51 @@ impl<'a> ExpressionParser<'a> {
         if self.parser.current() == &Token::When {
             self.parser.advance();
 
-            let value = Box::new(self.parse_or()?);
+            let value = match self.parser.current() {
+                Token::Identifier(name) => {
+                    let var_name = name.clone();
+                    self.parser.advance();
+
+                    let mut expr = Expression::Variable(var_name);
+                    while self.parser.current() == &Token::Dot {
+                        self.parser.advance();
+                        if let Token::Identifier(field) = self.parser.current() {
+                            let field_name = field.clone();
+                            self.parser.advance();
+                            expr = Expression::FieldAccess {
+                                object: Box::new(expr),
+                                field: field_name,
+                            };
+                        } else {
+                            return Err("Expected field name after '.'".to_string());
+                        }
+                    }
+                    Box::new(expr)
+                }
+                Token::IntLiteral(n) => {
+                    let num = *n;
+                    self.parser.advance();
+                    Box::new(Expression::IntLiteral(num))
+                }
+                Token::True => {
+                    self.parser.advance();
+                    Box::new(Expression::BoolLiteral(true))
+                }
+                Token::False => {
+                    self.parser.advance();
+                    Box::new(Expression::BoolLiteral(false))
+                }
+                Token::LeftParen => {
+                    self.parser.advance();
+                    let expr = self.parse_or()?;
+                    self.parser.expect(Token::RightParen)?;
+                    Box::new(expr)
+                }
+                _ => {
+                    return Err(format!("Expected value in when expression, got {:?}",
+                                       self.parser.current()));
+                }
+            };
 
             self.parser.expect(Token::LeftBrace)?;
 
@@ -70,14 +113,14 @@ impl<'a> ExpressionParser<'a> {
                 self.parser.advance();
 
                 let pattern = self.parse_when_pattern()?;
-
                 self.parser.expect(Token::Arrow)?;
 
                 let result = self.parse_or()?;
 
                 cases.push(WhenExprCase { pattern, result });
 
-                if self.parser.current() == &Token::Comma || self.parser.current() == &Token::Semicolon {
+                if self.parser.current() == &Token::Comma
+                    || self.parser.current() == &Token::Semicolon {
                     self.parser.advance();
                 }
             }
@@ -103,7 +146,7 @@ impl<'a> ExpressionParser<'a> {
         }
     }
 
-    /// Parses a when pattern.
+    /// Parses a when pattern (including enum patterns).
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -111,6 +154,59 @@ impl<'a> ExpressionParser<'a> {
     /// # Returns
     /// A `WhenPattern` or an error message.
     fn parse_when_pattern(&mut self) -> Result<WhenPattern, String> {
+        let saved_pos = self.parser.pos;
+
+        if let Token::Identifier(first) = self.parser.current() {
+            let first_name = first.clone();
+            self.parser.advance();
+
+            if self.parser.current() == &Token::DoubleColon {
+                self.parser.advance();
+
+                if let Token::Identifier(variant) = self.parser.current() {
+                    let variant_name = variant.clone();
+                    self.parser.advance();
+
+                    let bindings = if self.parser.current() == &Token::LeftParen {
+                        self.parser.advance();
+                        let mut bindings = Vec::new();
+
+                        if self.parser.current() != &Token::RightParen {
+                            loop {
+                                if let Token::Identifier(binding)
+                                    = self.parser.current() {
+                                    bindings.push(binding.clone());
+                                    self.parser.advance();
+                                } else {
+                                    return Err("Expected variable binding in enum pattern"
+                                        .to_string());
+                                }
+
+                                if self.parser.current() == &Token::Comma {
+                                    self.parser.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.parser.expect(Token::RightParen)?;
+                        bindings
+                    } else {
+                        vec![]
+                    };
+
+                    return Ok(WhenPattern::EnumVariant {
+                        enum_name: first_name,
+                        variant_name,
+                        bindings,
+                    });
+                }
+            }
+
+            self.parser.pos = saved_pos;
+        }
+
         let start = self.parse_or()?;
 
         if self.parser.current() == &Token::Through {
@@ -377,7 +473,7 @@ impl<'a> ExpressionParser<'a> {
         }
     }
 
-    /// Parses primary expressions: literals, variables, function calls, parenthesized expressions.
+    /// Parses primary expressions: literals, variables, function calls, parenthesized expressions, enum construction, struct initialization.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -409,6 +505,11 @@ impl<'a> ExpressionParser<'a> {
             Token::Identifier(name) => {
                 self.parser.advance();
 
+                if self.parser.current() == &Token::LeftBrace {
+                    let mut struct_parser = super::struct_parser::StructParser::new(self.parser);
+                    return struct_parser.parse_struct_init(name);
+                }
+
                 let mut path = vec![name.clone()];
 
                 while self.parser.current() == &Token::DoubleColon {
@@ -418,6 +519,50 @@ impl<'a> ExpressionParser<'a> {
                         self.parser.advance();
                     } else {
                         return Err("Expected identifier after ::".to_string());
+                    }
+                }
+
+                if path.len() == 2 {
+                    let is_module = matches!(path[0].as_str(), "std" | "io");
+
+                    if self.parser.current() == &Token::LeftParen {
+                        self.parser.advance();
+                        let mut args = Vec::new();
+
+                        if self.parser.current() != &Token::RightParen {
+                            loop {
+                                args.push(self.parse_expr()?);
+                                if self.parser.current() == &Token::Comma {
+                                    self.parser.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.parser.expect(Token::RightParen)?;
+
+                        if is_module {
+                            return Ok(Expression::Call {
+                                path,
+                                type_args: None,
+                                args
+                            });
+                        } else {
+                            return Ok(Expression::EnumConstruct {
+                                enum_name: path[0].clone(),
+                                variant_name: path[1].clone(),
+                                args,
+                            });
+                        }
+                    } else if !is_module {
+                        return Ok(Expression::EnumConstruct {
+                            enum_name: path[0].clone(),
+                            variant_name: path[1].clone(),
+                            args: vec![],
+                        });
+                    } else {
+                        return Err("Module path requires a function call".to_string());
                     }
                 }
 
@@ -481,9 +626,6 @@ impl<'a> ExpressionParser<'a> {
 
                     self.parser.expect(Token::RightParen)?;
                     Expression::Call { path, type_args, args }
-                } else if self.parser.current() == &Token::LeftBrace && path.len() == 1 && type_args.is_none() {
-                    let mut struct_parser = super::struct_parser::StructParser::new(self.parser);
-                    return struct_parser.parse_struct_init(name);
                 } else if path.len() == 1 && type_args.is_none() {
                     Expression::Variable(path[0].clone())
                 } else {

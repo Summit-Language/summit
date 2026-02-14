@@ -148,6 +148,8 @@ impl<'a> ExpressionAnalyzer<'a> {
                 let mut result_types = Vec::new();
 
                 for case in cases {
+                    let mut case_scope = scope.clone();
+
                     match &case.pattern {
                         WhenPattern::Single(pattern_expr) => {
                             self.analyze_expr(pattern_expr, scope)?;
@@ -185,12 +187,47 @@ impl<'a> ExpressionAnalyzer<'a> {
                                 ));
                             }
                         }
+                        WhenPattern::EnumVariant { enum_name, variant_name, bindings } => {
+                            if value_type != *enum_name {
+                                return Err(format!(
+                                    "When pattern '{}::{}' expects enum type '{}', but value has type '{}'",
+                                    enum_name, variant_name, enum_name, value_type
+                                ));
+                            }
+
+                            if let Some(enum_def) = self.analyzer.enums.get(enum_name) {
+                                if let Some(variant) = enum_def.variants.iter().find(|v| &v.name == variant_name) {
+                                    let payload_count = variant.payload.as_ref().map(|p| p.len()).unwrap_or(0);
+                                    if bindings.len() != payload_count {
+                                        return Err(format!(
+                                            "Enum variant '{}::{}' expects {} bindings, but {} were provided",
+                                            enum_name, variant_name, payload_count, bindings.len()
+                                        ));
+                                    }
+
+                                    if let Some(payload_types) = &variant.payload {
+                                        for (binding_name, payload_type) in bindings.iter().zip(payload_types.iter()) {
+                                            case_scope.insert(binding_name.clone(), payload_type.clone());
+                                        }
+                                    }
+                                } else {
+                                    return Err(format!(
+                                        "Enum variant '{}::{}' not found in enum '{}'",
+                                        enum_name, variant_name, enum_name
+                                    ));
+                                }
+                            } else {
+                                for binding_name in bindings {
+                                    case_scope.insert(binding_name.clone(), "i32".to_string());
+                                }
+                            }
+                        }
                     }
 
-                    self.analyze_expr(&case.result, scope)?;
+                    self.analyze_expr(&case.result, &case_scope)?;
 
                     let result_type = self.analyzer.type_checker.infer_type(
-                        &case.result, scope, &self.analyzer.functions, &self.analyzer.structs)?;
+                        &case.result, &case_scope, &self.analyzer.functions, &self.analyzer.structs)?;
                     result_types.push(result_type);
                 }
 
@@ -211,19 +248,16 @@ impl<'a> ExpressionAnalyzer<'a> {
                 Ok(())
             }
             Expression::StructInit { struct_name, fields } => {
-                // Verify the struct exists
                 if !self.analyzer.structs.contains_key(struct_name) {
                     return Err(format!("Undefined struct: {}", struct_name));
                 }
 
                 let struct_def = &self.analyzer.structs[struct_name];
 
-                // Check field initialization
                 if fields.is_empty() {
                     return Err(format!("Struct '{}' must be initialized with fields", struct_name));
                 }
 
-                // Check if using positional or named initialization
                 let has_named = fields.iter().any(|f| f.name.is_some());
                 let has_positional = fields.iter().any(|f| f.name.is_none());
 
@@ -232,7 +266,6 @@ impl<'a> ExpressionAnalyzer<'a> {
                 }
 
                 if has_positional {
-                    // Positional initialization - must match field count and order
                     if fields.len() != struct_def.fields.len() {
                         return Err(format!(
                             "Struct '{}' expects {} fields, but {} were provided",
@@ -253,12 +286,10 @@ impl<'a> ExpressionAnalyzer<'a> {
                         }
                     }
                 } else {
-                    // Named initialization - check all fields are present and types match
                     let mut initialized_fields = HashMap::new();
 
                     for field_init in fields {
                         if let Some(field_name) = &field_init.name {
-                            // Check for duplicate field initialization
                             if initialized_fields.contains_key(field_name) {
                                 return Err(format!(
                                     "Field '{}' is initialized multiple times in struct '{}'",
@@ -266,7 +297,6 @@ impl<'a> ExpressionAnalyzer<'a> {
                                 ));
                             }
 
-                            // Find the field in the struct definition
                             let struct_field = struct_def.fields.iter()
                                 .find(|f| &f.name == field_name)
                                 .ok_or_else(|| format!(
@@ -289,7 +319,6 @@ impl<'a> ExpressionAnalyzer<'a> {
                         }
                     }
 
-                    // Check that all fields are initialized
                     for struct_field in &struct_def.fields {
                         if !initialized_fields.contains_key(&struct_field.name) {
                             return Err(format!(
@@ -303,24 +332,65 @@ impl<'a> ExpressionAnalyzer<'a> {
                 Ok(())
             }
             Expression::FieldAccess { object, field } => {
-                // Analyze the object expression
                 self.analyze_expr(object, scope)?;
 
-                // Get the object's type
                 let object_type = self.analyzer.type_checker.infer_type(
                     object, scope, &self.analyzer.functions, &self.analyzer.structs)?;
 
-                // Verify it's a struct type
                 if !self.analyzer.structs.contains_key(&object_type) {
                     return Err(format!("Cannot access field '{}' on non-struct type '{}'", field, object_type));
                 }
 
-                // Verify the field exists
                 let struct_def = &self.analyzer.structs[&object_type];
                 let field_exists = struct_def.fields.iter().any(|f| &f.name == field);
 
                 if !field_exists {
                     return Err(format!("Field '{}' not found in struct '{}'", field, object_type));
+                }
+
+                Ok(())
+            }
+            Expression::EnumConstruct { enum_name, variant_name, args } => {
+                if !self.analyzer.enums.contains_key(enum_name) {
+                    return Err(format!("Undefined enum: {}", enum_name));
+                }
+
+                let enum_def = &self.analyzer.enums[enum_name];
+
+                let variant = enum_def.variants.iter()
+                    .find(|v| &v.name == variant_name)
+                    .ok_or_else(|| format!(
+                        "Variant '{}' not found in enum '{}'",
+                        variant_name, enum_name
+                    ))?;
+
+                let expected_arg_count = variant.payload.as_ref().map(|p| p.len()).unwrap_or(0);
+
+                if args.len() != expected_arg_count {
+                    return Err(format!(
+                        "Enum variant '{}::{}' expects {} arguments, but {} were provided",
+                        enum_name, variant_name, expected_arg_count, args.len()
+                    ));
+                }
+
+                if let Some(payload_types) = &variant.payload {
+                    for (i, (arg, expected_type)) in args.iter().zip(payload_types.iter()).enumerate() {
+                        self.analyze_expr(arg, scope)?;
+
+                        let arg_type = self.analyzer.type_checker.infer_type(
+                            arg, scope, &self.analyzer.functions, &self.analyzer.structs)?;
+
+                        if !self.analyzer.type_checker.types_compatible(&arg_type, expected_type) {
+                            return Err(format!(
+                                "Type mismatch in argument {} of enum variant '{}::{}': expected '{}', got '{}'",
+                                i + 1, enum_name, variant_name, expected_type, arg_type
+                            ));
+                        }
+                    }
+                } else {
+                    for arg in args {
+                        self.analyze_expr(arg, scope)?;
+                    }
                 }
 
                 Ok(())
@@ -347,12 +417,10 @@ impl<'a> ExpressionAnalyzer<'a> {
         }
 
         if let Some(params) = self.analyzer.function_params.get(func_name) {
-            // Check if this is a variadic function
             let func = &self.analyzer.functions[func_name];
             let is_variadic = func.has_varargs;
 
             if is_variadic {
-                // For variadic functions, we need at least the minimum number of parameters
                 if args.len() < params.len() {
                     return Err(format!(
                         "Function '{}' expects at least {} arguments, but {} were provided",
@@ -360,7 +428,6 @@ impl<'a> ExpressionAnalyzer<'a> {
                     ));
                 }
             } else {
-                // For non-variadic functions, argument count must match exactly
                 if args.len() != params.len() {
                     return Err(format!(
                         "Function '{}' expects {} arguments, but {} were provided",
@@ -369,7 +436,6 @@ impl<'a> ExpressionAnalyzer<'a> {
                 }
             }
 
-            // Type check the fixed parameters (not the variadic ones)
             for (i, (arg, (param_name, param_type))) in args
                 .iter().zip(params.iter()).enumerate() {
                 let arg_type = self.analyzer.type_checker.infer_type(arg, scope,

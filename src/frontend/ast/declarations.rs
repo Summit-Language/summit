@@ -1,6 +1,7 @@
 use super::expressions::Expression;
 use super::statements::Statement;
 use super::structs::StructDef;
+use super::enums::EnumDef;
 
 /// A global declaration that appears at the top level of a program.
 #[derive(Debug, Clone)]
@@ -28,6 +29,8 @@ pub enum GlobalDeclaration {
 
     /// A struct definition: `struct Name { field: type }`
     Struct(StructDef),
+
+    Enum(EnumDef),
 }
 
 /// An import statement that brings in other modules.

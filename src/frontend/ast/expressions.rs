@@ -75,6 +75,12 @@ pub enum Expression {
         object: Box<Expression>,
         field: String,
     },
+
+    EnumConstruct {
+        enum_name: String,
+        variant_name: String,
+        args: Vec<Expression>,
+    },
 }
 
 /// A single case in a when expression

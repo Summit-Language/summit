@@ -45,7 +45,6 @@ fn main() {
                 &[]
             };
 
-            // Extract library flags and remaining arguments
             let (link_libs, remaining_args) = extract_link_libs(run_args);
 
             let file = if !remaining_args.is_empty() {
@@ -66,7 +65,6 @@ fn main() {
                 &[]
             };
 
-            // Extract library flags and remaining arguments
             let (link_libs, remaining_args) = extract_link_libs(build_args);
 
             if let Err(e) = build_project(&remaining_args, &link_libs) {
@@ -97,13 +95,4 @@ fn print_usage() {
     eprintln!("  summit run [file] [-l lib ...]      Compile and run a Summit file (default: uses Summit.toml)");
     eprintln!("  summit build [file] [-l lib ...]    Compile a Summit file (default: uses Summit.toml)");
     eprintln!("  summit clean                        Remove the built binaries");
-    eprintln!();
-    eprintln!("Examples:");
-    eprintln!("  summit new my_project               Create a new project called 'my_project'");
-    eprintln!("  summit build                        Build using Summit.toml configuration");
-    eprintln!("  summit build main.sm                Build a single file");
-    eprintln!("  summit build -lm -lpthread          Build with math and pthread libraries");
-    eprintln!("  summit build main.sm -lm            Build a file with the math library");
-    eprintln!("  summit run                          Build and run using Summit.toml");
-    eprintln!("  summit run main.sm -lSDL2           Build and run a file with SDL2");
 }

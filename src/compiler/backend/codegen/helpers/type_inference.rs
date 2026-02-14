@@ -22,6 +22,7 @@ impl<'a> TypeInference<'a> {
     /// - `symbol_table`: Map of variable names to their types
     /// - `function_signatures`: Map of function names to their return types
     /// - `struct_defs`: Map of struct names to their definitions
+    /// - `enum_defs`: Map of enum names to their definitions
     pub fn new(
         symbol_table: &'a HashMap<String, String>,
         function_signatures: &'a HashMap<String, String>,
@@ -87,6 +88,9 @@ impl<'a> TypeInference<'a> {
             Expression::StructInit { struct_name, .. } => {
                 struct_name.clone()
             }
+            Expression::EnumConstruct { enum_name, .. } => {
+                enum_name.clone()
+            }
             Expression::FieldAccess { object, field } => {
                 self.infer_field_type(object, field)
             }
@@ -133,7 +137,7 @@ impl<'a> TypeInference<'a> {
     /// The type of the field as a string
     fn infer_field_type(&self, object: &Expression, field: &str) -> String {
         let object_type = self.infer_expression_type(object);
-        
+
         if let Some(struct_def) = self.struct_defs.get(&object_type) {
             for struct_field in &struct_def.fields {
                 if struct_field.name == field {

@@ -65,6 +65,9 @@ impl TypeInference {
             Expression::FieldAccess { object, field } => {
                 self.infer_field_access_type(object, field, scope, functions, structs, type_utils)
             }
+            Expression::EnumConstruct { enum_name, .. } => {
+                Ok(enum_name.clone())
+            }
         }
     }
 

@@ -148,16 +148,55 @@ impl<'a> StatementGenerator<'a> {
     /// - `else_block`: Optional default case
     fn emit_when_stmt(&mut self, value: &Expression, cases: &[WhenCase],
                       else_block: &Option<Vec<Statement>>) {
-        let has_ranges = cases.iter().any(|case| matches!(case.pattern, WhenPattern::Range { .. }));
+        let has_ranges_or_enums = cases.iter().any(|case| {
+            matches!(case.pattern, WhenPattern::Range { .. } | WhenPattern::EnumVariant { .. })
+        });
 
-        if has_ranges {
+        if has_ranges_or_enums {
             self.emit_when_with_ranges(value, cases, else_block);
         } else {
             self.emit_when_with_switch(value, cases, else_block);
         }
     }
 
-    /// Generates C code for when statement using if-else chain for range patterns.
+    /// Emits variable declarations for enum variant bindings.
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    /// - `value_name`: Name of the variable holding the enum value
+    /// - `enum_name`: Name of the enum type
+    /// - `variant_name`: Name of the variant
+    /// - `bindings`: Variable bindings from the pattern
+    fn emit_enum_bindings(&mut self, value_name: &str, enum_name: &str, variant_name: &str, bindings: &[String]) {
+        if bindings.is_empty() {
+            return;
+        }
+
+        // Look up the enum definition to get payload types
+        if let Some(enum_def) = self.generator.enum_defs.get(enum_name) {
+            if let Some(variant) = enum_def.variants.iter().find(|v| &v.name == variant_name) {
+                if let Some(payload_types) = &variant.payload {
+                    let variant_lower = variant_name.to_lowercase();
+
+                    for (i, (binding_name, payload_type)) in bindings.iter().zip(payload_types.iter()).enumerate() {
+                        self.generator.emitter.indent();
+                        let c_type = self.generator.map_type(payload_type).to_string();
+                        self.generator.emitter.emit(&format!("{} {} = ", c_type, binding_name));
+
+                        if bindings.len() == 1 {
+                            self.generator.emitter.emit(&format!("{}.data.{}", value_name, variant_lower));
+                        } else {
+                            self.generator.emitter.emit(&format!("{}.data.{}._{}", value_name, variant_lower, i));
+                        }
+
+                        self.generator.emitter.emit(";\n");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Generates C code for when statement using if-else chain for range/enum patterns.
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -222,10 +261,23 @@ impl<'a> StatementGenerator<'a> {
                         let mut expr_gen = ExpressionGenerator::new(self.generator);
                         expr_gen.generate_expr(end);
                     }
+                    WhenPattern::EnumVariant { enum_name, variant_name, 
+                        bindings } => {
+                        self.generator.emitter.emit(&format!("__when_value.tag == {}_{}",
+                                                             enum_name, variant_name));
+
+                        let _ = bindings;
+                    }
                 }
 
                 self.generator.emitter.emit(")) {\n");
                 self.generator.emitter.indent_level += 1;
+
+                if let WhenPattern::EnumVariant { enum_name, variant_name, 
+                    bindings } = &case.pattern {
+                    self.emit_enum_bindings("__when_value", enum_name, 
+                                            variant_name, bindings);
+                }
 
                 let has_fallthrough = if let Some(last_stmt) = case.body.last() {
                     matches!(last_stmt, Statement::Fallthrough)
@@ -315,10 +367,38 @@ impl<'a> StatementGenerator<'a> {
                         let mut expr_gen = ExpressionGenerator::new(self.generator);
                         expr_gen.generate_expr(end);
                     }
+                    WhenPattern::EnumVariant { enum_name, variant_name, 
+                        bindings } => {
+                        let mut expr_gen = ExpressionGenerator::new(self.generator);
+                        expr_gen.generate_expr(value);
+                        self.generator.emitter.emit(&format!(".tag == {}_{}",
+                                                             enum_name, variant_name));
+
+                        let _ = bindings;
+                    }
                 }
 
                 self.generator.emitter.emit(") {\n");
                 self.generator.emitter.indent_level += 1;
+
+                // Extract enum variant bindings if present
+                if let WhenPattern::EnumVariant { enum_name, variant_name, 
+                    bindings } = &case.pattern {
+                    let type_inference = TypeInference::new(&self.generator.symbol_table,
+                                                            &self.generator.function_signatures,
+                                                            &self.generator.struct_defs);
+                    let value_type = type_inference.infer_expression_type(value);
+
+                    self.generator.emitter.indent();
+                    let c_type = self.generator.map_type(&value_type).to_string();
+                    self.generator.emitter.emit(&format!("{} __when_value = ", c_type));
+                    let mut expr_gen = ExpressionGenerator::new(self.generator);
+                    expr_gen.generate_expr(value);
+                    self.generator.emitter.emit(";\n");
+
+                    self.emit_enum_bindings("__when_value", 
+                                            enum_name, variant_name, bindings);
+                }
 
                 for stmt in &case.body {
                     self.generate_stmt(stmt);

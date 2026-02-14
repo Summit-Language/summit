@@ -45,7 +45,7 @@ impl<'a> StructParser<'a> {
             };
 
             self.parser.expect(Token::Colon)?;
-            
+
             let field_type = match self.parser.current() {
                 Token::Type(t) => {
                     let typ = t.clone();
@@ -96,20 +96,24 @@ impl<'a> StructParser<'a> {
 
         while self.parser.current() != &Token::RightBrace {
             let is_named_field = if let Token::Identifier(_) = self.parser.current() {
-                self.parser.peek(1) == &Token::Colon
+                let next_token = self.parser.peek(1);
+                next_token == &Token::Colon
             } else {
                 false
             };
-            
+
             if is_positional.is_none() {
                 is_positional = Some(!is_named_field);
             }
 
-            if is_positional == Some(true) && is_named_field {
-                return Err("Cannot mix positional and named field initialization".to_string());
-            }
-            if is_positional == Some(false) && !is_named_field {
-                return Err("Cannot mix named and positional field initialization".to_string());
+            match (is_positional, is_named_field) {
+                (Some(true), true) => {
+                    return Err("Cannot mix positional and named field initialization".to_string());
+                }
+                (Some(false), false) => {
+                    return Err("Cannot mix named and positional field initialization".to_string());
+                }
+                _ => {}
             }
 
             let field_init = if is_named_field {
@@ -144,8 +148,14 @@ impl<'a> StructParser<'a> {
 
             if self.parser.current() == &Token::Comma {
                 self.parser.advance();
+                if self.parser.current() == &Token::RightBrace {
+                    break;
+                }
             } else if self.parser.current() != &Token::RightBrace {
-                return Err("Expected ',' or '}' after field initialization".to_string());
+                return Err(format!(
+                    "Expected ',' or '}}' after field initialization, got {:?}",
+                    self.parser.current()
+                ));
             }
         }
 

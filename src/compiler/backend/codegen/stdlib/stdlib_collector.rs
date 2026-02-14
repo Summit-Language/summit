@@ -73,6 +73,7 @@ impl<'a> StdlibCollector<'a> {
                             self.collect_from_expr(start);
                             self.collect_from_expr(end);
                         }
+                        WhenPattern::EnumVariant { .. } => {}
                     }
                     for s in &case.body {
                         self.collect_from_stmt(s);
@@ -197,7 +198,41 @@ impl<'a> StdlibCollector<'a> {
                 self.collect_from_expr(then_expr);
                 self.collect_from_expr(else_expr);
             }
-            _ => {}
+            Expression::WhenExpr { value, cases, else_expr } => {
+                self.collect_from_expr(value);
+                for case in cases {
+                    match &case.pattern {
+                        WhenPattern::Single(expr) => {
+                            self.collect_from_expr(expr);
+                        }
+                        WhenPattern::Range { start, end, .. } => {
+                            self.collect_from_expr(start);
+                            self.collect_from_expr(end);
+                        }
+                        WhenPattern::EnumVariant { .. } => {}
+                    }
+                    self.collect_from_expr(&case.result);
+                }
+                self.collect_from_expr(else_expr);
+            }
+            Expression::StructInit { fields, .. } => {
+                for field_init in fields {
+                    self.collect_from_expr(&field_init.value);
+                }
+            }
+            Expression::FieldAccess { object, .. } => {
+                self.collect_from_expr(object);
+            }
+            Expression::EnumConstruct { args, .. } => {
+                for arg in args {
+                    self.collect_from_expr(arg);
+                }
+            }
+            Expression::IntLiteral(_) |
+            Expression::BoolLiteral(_) |
+            Expression::StringLiteral(_) |
+            Expression::NullLiteral |
+            Expression::Variable(_) => {}
         }
     }
 
@@ -352,7 +387,63 @@ impl<'a> StdlibCollector<'a> {
             Expression::IfExpr { then_expr, .. } => {
                 self.infer_expr_type(then_expr)
             }
-            _ => "i64".to_string(),
+            Expression::WhenExpr { cases, else_expr, .. } => {
+                if cases.is_empty() {
+                    self.infer_expr_type(else_expr)
+                } else {
+                    self.infer_expr_type(&cases[0].result)
+                }
+            }
+            Expression::StructInit { struct_name, .. } => {
+                struct_name.clone()
+            }
+            Expression::EnumConstruct { enum_name, .. } => {
+                enum_name.clone()
+            }
+            Expression::FieldAccess { object, .. } => {
+                self.infer_expr_type(object)
+            }
+            Expression::Call { .. } => {
+                "i64".to_string()
+            }
+            Expression::Binary { left, right, .. } => {
+                let left_type = self.infer_expr_type(left);
+                let right_type = self.infer_expr_type(right);
+                // Return the "wider" type
+                self.wider_type(&left_type, &right_type)
+            }
+            Expression::Unary { operand, .. } => {
+                self.infer_expr_type(operand)
+            }
+        }
+    }
+
+    /// Returns the wider of two numeric types.
+    ///
+    /// # Parameters
+    /// - `self`: Immutable reference to self
+    /// - `type1`: The first type
+    /// - `type2`: The second type
+    ///
+    /// # Returns
+    /// The wider type as a string
+    fn wider_type(&self, type1: &str, type2: &str) -> String {
+        let type_priority = [
+            "bool", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "i128", "u128"
+        ];
+
+        let pos1 = type_priority.iter().position(|&t| t == type1);
+        let pos2 = type_priority.iter().position(|&t| t == type2);
+
+        match (pos1, pos2) {
+            (Some(p1), Some(p2)) => {
+                if p1 > p2 {
+                    type1.to_string()
+                } else {
+                    type2.to_string()
+                }
+            }
+            _ => type1.to_string(),
         }
     }
 }

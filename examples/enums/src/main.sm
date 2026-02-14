@@ -1,0 +1,39 @@
+import std::io;
+
+enum Nillable {
+    Value(i32),
+    Nil
+}
+
+enum Colour {
+    Red,
+    Green,
+    Blue
+}
+
+struct Container {
+    value: Nillable,
+    id: i32
+}
+
+func print_nillable(num: Nillable): void {
+    when num {
+        is Nillable::Value(x) -> io::println("Value is {}", x);
+        is Nillable::Nil -> io::println("No value present");
+    }
+}
+
+func main(): i8 {
+    const test: Container = Container { Nillable::Value(42), 1 };
+    print_nillable(test.value);
+    io::println(test.id);
+
+    const colour: Colour = Colour::Red;
+
+    when colour {
+        is Colour::Red -> io::println("The colour is Red");
+        is Colour::Green -> io::println("The colour is Green");
+        is Colour::Blue -> io::println("The colour is Blue");
+    }
+    ret 0;
+}

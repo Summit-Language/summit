@@ -17,7 +17,7 @@ impl<'a> StatementParser<'a> {
         StatementParser { parser }
     }
 
-    /// Parses a type, which can be either a built-in type or a struct identifier.
+    /// Parses a type, which can be either a built-in type or a struct/enum identifier.
     ///
     /// # Returns
     /// The type name as a String, or an error message.
@@ -33,7 +33,7 @@ impl<'a> StatementParser<'a> {
                 self.parser.advance();
                 Ok(typ)
             }
-            _ => Err("Expected type or struct name".to_string())
+            _ => Err("Expected type or struct/enum name".to_string())
         }
     }
 
@@ -272,6 +272,7 @@ impl<'a> StatementParser<'a> {
     /// Patterns can be:
     /// - Single values: `is 5`
     /// - Ranges: `is 1 to 10` (exclusive) or `is 1 through 10` (inclusive)
+    /// - Enum variants: `is Option::Some(x)` or `is Color::Red`
     ///
     /// # Parameters
     /// - `self`: Mutable reference to self
@@ -281,8 +282,30 @@ impl<'a> StatementParser<'a> {
     fn parse_when(&mut self) -> Result<Statement, String> {
         self.parser.expect(Token::When)?;
 
-        let mut expr_parser = ExpressionParser::new(self.parser);
-        let value = expr_parser.parse_expr()?;
+        let value = match self.parser.current() {
+            Token::Identifier(name) => {
+                let var_name = name.clone();
+                self.parser.advance();
+                Expression::Variable(var_name)
+            }
+            Token::IntLiteral(n) => {
+                let num = *n;
+                self.parser.advance();
+                Expression::IntLiteral(num)
+            }
+            Token::True => {
+                self.parser.advance();
+                Expression::BoolLiteral(true)
+            }
+            Token::False => {
+                self.parser.advance();
+                Expression::BoolLiteral(false)
+            }
+            _ => {
+                let mut expr_parser = ExpressionParser::new(self.parser);
+                expr_parser.parse_or()?
+            }
+        };
 
         self.parser.expect(Token::LeftBrace)?;
 
@@ -291,30 +314,7 @@ impl<'a> StatementParser<'a> {
         while self.parser.current() == &Token::Is {
             self.parser.advance();
 
-            let mut expr_parser = ExpressionParser::new(self.parser);
-            let start_expr = expr_parser.parse_or()?;
-
-            let pattern = if self.parser.current() == &Token::To {
-                self.parser.advance();
-                let mut expr_parser = ExpressionParser::new(self.parser);
-                let end_expr = expr_parser.parse_or()?;
-                WhenPattern::Range {
-                    start: start_expr,
-                    end: end_expr,
-                    inclusive: false,
-                }
-            } else if self.parser.current() == &Token::Through {
-                self.parser.advance();
-                let mut expr_parser = ExpressionParser::new(self.parser);
-                let end_expr = expr_parser.parse_or()?;
-                WhenPattern::Range {
-                    start: start_expr,
-                    end: end_expr,
-                    inclusive: true,
-                }
-            } else {
-                WhenPattern::Single(start_expr)
-            };
+            let pattern = self.parse_when_pattern()?;
 
             let case_body = if self.parser.current() == &Token::Arrow {
                 self.parser.advance();
@@ -357,9 +357,9 @@ impl<'a> StatementParser<'a> {
         } else {
             None
         };
-
+        
         self.parser.expect(Token::RightBrace)?;
-
+        
         if cases.is_empty() && else_block.is_none() {
             return Err("When statement must have at least one 'is' case or an 'else' block".to_string());
         }
@@ -369,6 +369,92 @@ impl<'a> StatementParser<'a> {
             cases,
             else_block,
         })
+    }
+
+
+    /// Parses a when pattern (including enum patterns).
+    ///
+    /// # Parameters
+    /// - `self`: Mutable reference to self
+    ///
+    /// # Returns
+    /// A `WhenPattern` or an error message.
+    fn parse_when_pattern(&mut self) -> Result<WhenPattern, String> {
+        let saved_pos = self.parser.pos;
+
+        if let Token::Identifier(first) = self.parser.current() {
+            let first_name = first.clone();
+            self.parser.advance();
+
+            if self.parser.current() == &Token::DoubleColon {
+                self.parser.advance();
+
+                if let Token::Identifier(variant) = self.parser.current() {
+                    let variant_name = variant.clone();
+                    self.parser.advance();
+
+                    let bindings = if self.parser.current() == &Token::LeftParen {
+                        self.parser.advance();
+                        let mut bindings = Vec::new();
+
+                        if self.parser.current() != &Token::RightParen {
+                            loop {
+                                if let Token::Identifier(binding) = self.parser.current() {
+                                    bindings.push(binding.clone());
+                                    self.parser.advance();
+                                } else {
+                                    return Err("Expected variable binding in enum pattern".to_string());
+                                }
+
+                                if self.parser.current() == &Token::Comma {
+                                    self.parser.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.parser.expect(Token::RightParen)?;
+                        bindings
+                    } else {
+                        vec![]
+                    };
+
+                    return Ok(WhenPattern::EnumVariant {
+                        enum_name: first_name,
+                        variant_name,
+                        bindings,
+                    });
+                }
+            }
+
+            self.parser.pos = saved_pos;
+        }
+
+        let mut expr_parser = ExpressionParser::new(self.parser);
+        let start_expr = expr_parser.parse_or()?;
+
+        if self.parser.current() == &Token::To {
+            self.parser.advance();
+            let mut expr_parser = ExpressionParser::new(self.parser);
+            let end_expr = expr_parser.parse_or()?;
+            Ok(WhenPattern::Range {
+                start: start_expr,
+                end: end_expr,
+                inclusive: false,
+            })
+        } else if self.parser.current() == &Token::Through {
+            self.parser.advance();
+            let mut expr_parser = ExpressionParser::new(self.parser);
+            let end_expr = expr_parser.parse_or()?;
+            Ok(WhenPattern::Range {
+                start: start_expr,
+                end: end_expr,
+                inclusive: true,
+            })
+        } else {
+            Ok(WhenPattern::Single(start_expr))
+        }
     }
 
     /// Parses a for loop statement.

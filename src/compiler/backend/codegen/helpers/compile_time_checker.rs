@@ -57,6 +57,9 @@ impl CompileTimeChecker {
                             self.is_compile_time_constant_expr(start, runtime_globals) &&
                                 self.is_compile_time_constant_expr(end, runtime_globals)
                         }
+                        WhenPattern::EnumVariant { .. } => {
+                            true
+                        }
                     };
 
                     if !pattern_is_constant {
@@ -82,6 +85,11 @@ impl CompileTimeChecker {
                 self.is_compile_time_constant_expr(object, runtime_globals)
             }
             Expression::Call { .. } => false,
+            Expression::EnumConstruct { args, .. } => {
+                args.iter().all(|expr| {
+                    self.is_compile_time_constant_expr(expr, runtime_globals)
+                })
+            }
         }
     }
 }

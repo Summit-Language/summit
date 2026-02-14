@@ -98,6 +98,10 @@ impl Parser {
                     let mut decl_parser = DeclarationParser::new(self);
                     globals.push(decl_parser.parse_struct()?);
                 }
+                Token::Enum => {
+                    let mut decl_parser = DeclarationParser::new(self);
+                    globals.push(decl_parser.parse_enum()?);
+                }
                 Token::Var => {
                     let mut decl_parser = DeclarationParser::new(self);
                     globals.push(decl_parser.parse_global_var()?);
